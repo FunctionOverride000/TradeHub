@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "tailwindcss";
+
+:root {
+  --foreground-rgb: 234, 236, 239;
+  --background-start-rgb: 11, 14, 17;
+  --background-end-rgb: 11, 14, 17
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-start-rgb));
+  font-family: 'Inter', sans-serif;
+}
+
+/* Custom Scrollbar untuk nuansa Trading App */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0B0E11; 
+}
+::-webkit-scrollbar-thumb {
+  background: #2B3139; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #FCD535; 
+}
