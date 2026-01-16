@@ -3,27 +3,20 @@
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
-  Trophy, 
   User, 
   Settings as SettingsIcon, 
   LogOut, 
   CheckCircle, 
-  Clock, 
   Award, 
   Loader2, 
-  Medal, 
-  TrendingUp, 
   BarChart2, 
   Wallet, 
   ShieldCheck, 
   Bell, 
   Lock, 
   Mail, 
-  ChevronRight,
   Save, 
   Copy, 
-  Check, 
-  Globe, 
   AlertTriangle, 
   Eye, 
   EyeOff, 
@@ -34,23 +27,19 @@ import {
   Shield,
   Star,
   BookOpen,
-  Trash2
+  Trash2,
+  Smartphone,
+  Download // Import icon Download
 } from 'lucide-react';
 
-/**
- * MENGGUNAKAN ESM CDN:
- * Menjamin library dimuat dengan benar di lingkungan preview tanpa folder node_modules lokal.
- */
 import { createClient } from '@supabase/supabase-js';
 import { useLanguage } from '../../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../../lib/LanguageSwitcher';
 
 // --- INISIALISASI SUPABASE ---
-// Menggunakan Environment Variable untuk keamanan dan fleksibilitas deploy
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Hanya inisialisasi client jika URL & Key valid
 const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
@@ -72,7 +61,7 @@ export default function SettingsPage() {
   const [is2FAEnabled, setIs2FAEnabled] = useState(false);
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [is2FALoading, setIs2FALoading] = useState(false);
-  const [mfaEnrollData, setMfaEnrollData] = useState<{qr_code: string, id: string} | null>(null);
+  const [mfaEnrollData, setMfaEnrollData] = useState<{qr_code: string, id: string, secret: string} | null>(null);
   const [verificationCode, setVerificationCode] = useState("");
 
   // State Ganti Kata Sandi
@@ -83,9 +72,9 @@ export default function SettingsPage() {
 
   // State Hapus Akun
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [deleteInput, setDeleteInput] = useState(""); // Input untuk Password ATAU Kode 2FA
+  const [deleteInput, setDeleteInput] = useState(""); 
   const [isDeleting, setIsDeleting] = useState(false);
-  const [showDeletePass, setShowDeletePass] = useState(false); // Toggle lihat password di modal hapus
+  const [showDeletePass, setShowDeletePass] = useState(false);
 
   // State Pesan UI
   const [uiMessage, setUiMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
@@ -102,7 +91,6 @@ export default function SettingsPage() {
   // 1. Sinkronisasi Sesi & Cek Status MFA
   useEffect(() => {
     const init = async () => {
-      // Safety check: Jika supabase client belum siap, stop.
       if (!supabase) {
           setIsLoading(false);
           return;
@@ -170,20 +158,29 @@ export default function SettingsPage() {
     if (is2FALoading || !supabase) return;
     setIs2FALoading(true);
     try {
+      // Bersihkan faktor unverified sebelumnya
       const { data: factors } = await (supabase.auth as any).mfa.listFactors();
       const unverifiedFactors = factors?.totp?.filter((f: any) => f.status === 'unverified') || [];
+      
       for (const factor of unverifiedFactors) {
         await (supabase.auth as any).mfa.unenroll({ factorId: factor.id });
       }
 
+      const uniqueFriendlyName = `Auth-${email}-${Date.now().toString().slice(-5)}`;
+
       const { data, error } = await (supabase.auth as any).mfa.enroll({
         factorType: 'totp',
         issuer: 'TradeHub',
-        friendlyName: `Auth-${Date.now()}`
+        friendlyName: uniqueFriendlyName
       });
 
       if (error) throw error;
-      setMfaEnrollData({ qr_code: data.totp.qr_code, id: data.id });
+      
+      setMfaEnrollData({ 
+        qr_code: data.totp.qr_code, 
+        id: data.id,
+        secret: data.totp.secret
+      });
     } catch (err: any) {
       showMsg(err.message || "Failed to start enrollment", 'error');
     } finally {
@@ -250,6 +247,22 @@ export default function SettingsPage() {
     }
   };
 
+  // --- FUNGSI BARU: DOWNLOAD QR ---
+  const handleDownloadQR = () => {
+    if (!mfaEnrollData?.qr_code) return;
+    try {
+      const link = document.createElement('a');
+      link.href = mfaEnrollData.qr_code;
+      link.download = `tradehub-2fa-qr-${Date.now()}.svg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showMsg("QR Code downloaded!");
+    } catch (e) {
+      showMsg("Failed to download QR.", 'error');
+    }
+  };
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supabase) return;
@@ -303,15 +316,12 @@ export default function SettingsPage() {
     }
   };
 
-  // --- LOGIKA HAPUS AKUN (SMART VERIFICATION & HARD DELETE) ---
   const handleConfirmDelete = async () => {
     if (!supabase || !deleteInput || !user) return;
     setIsDeleting(true);
 
     try {
-      // 1. Verifikasi Kepemilikan (Password atau 2FA)
       if (is2FAEnabled && mfaFactorId) {
-        // --- SKENARIO 1: 2FA AKTIF (Verifikasi Kode) ---
         const { data: challenge, error: challengeError } = await (supabase.auth as any).mfa.challenge({ factorId: mfaFactorId });
         if (challengeError) throw challengeError;
 
@@ -324,7 +334,6 @@ export default function SettingsPage() {
         if (verifyError) throw new Error("Kode 2FA salah atau kadaluarsa.");
 
       } else {
-        // --- SKENARIO 2: 2FA NON-AKTIF (Verifikasi Password) ---
         const { error: authError } = await supabase.auth.signInWithPassword({
           email: email,
           password: deleteInput
@@ -333,31 +342,24 @@ export default function SettingsPage() {
         if (authError) throw new Error("Kata sandi salah.");
       }
 
-      // 2. HAPUS DATA USER (KECUALI ROOMS)
-      // Kita hanya menghapus data partisipasi. Room tetap aman.
-      
       const { error: deleteDataError } = await supabase.from('participants').delete().eq('user_id', user.id);
       
       if (deleteDataError) {
         console.error("Gagal hapus data partisipan:", deleteDataError);
       }
 
-      // 3. HARD DELETE AKUN AUTH (Membutuhkan Edge Function 'delete-user')
       const { error: deleteFuncError } = await supabase.functions.invoke('delete-user');
       
       if (deleteFuncError) {
          console.error("Gagal menghapus user via function:", deleteFuncError);
-         // Jika gagal hapus permanen, lempar error agar user tahu
          throw new Error("Gagal menghapus akun dari sistem autentikasi. Pastikan fungsi 'delete-user' sudah dideploy.");
       }
 
-      // 4. Logout Paksa dan Bersihkan Sesi Lokal
       await supabase.auth.signOut();
       
       if (typeof window !== 'undefined') {
         localStorage.clear();
         sessionStorage.clear();
-        // Hapus semua cookie yang mungkin tersisa
         document.cookie.split(";").forEach((c) => {
           document.cookie = c
             .replace(/^ +/, "")
@@ -366,8 +368,6 @@ export default function SettingsPage() {
       }
 
       setIsDeleteModalOpen(false);
-      
-      // Redirect Paksa menggunakan window.location.href untuk refresh total
       window.location.href = '/auth'; 
       
     } catch (err: any) {
@@ -384,29 +384,6 @@ export default function SettingsPage() {
         localStorage.clear();
     }
     safeNavigate('/auth');
-  };
-
-  const getQRCodeHtml = (dataUrl: string | null): { __html: string } => {
-    if (!dataUrl) return { __html: "" };
-    try {
-      let svgContent = "";
-      if (dataUrl.includes('base64,')) {
-        svgContent = atob(dataUrl.split('base64,')[1]);
-      } else if (dataUrl.includes('utf-8,')) {
-        svgContent = decodeURIComponent(dataUrl.split('utf-8,')[1]);
-      } else {
-        svgContent = dataUrl;
-      }
-      
-      const styledSvg = svgContent
-        .replace(/<svg/g, '<svg style="display:block; width:100%; height:100%;"')
-        .replace(/fill="[^"]*"/g, 'fill="#000000"')
-        .replace(/stroke="[^"]*"/g, 'stroke="#000000"');
-      
-      return { __html: styledSvg };
-    } catch (e) {
-      return { __html: '<p class="text-red-500 text-xs text-center font-bold">Failed to load QR</p>' };
-    }
   };
 
   if (isLoading) {
@@ -426,7 +403,7 @@ export default function SettingsPage() {
         <div className="p-8 border-b border-[#2B3139] flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer group" onClick={() => safeNavigate('/')}>
             <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg shadow-[#FCD535]/10 group-hover:scale-110 transition-transform">
-              <TrendingUp className="text-black w-6 h-6" />
+              <Star className="text-black w-6 h-6" fill="black" />
             </div>
             <span className="font-black text-xl tracking-tighter text-[#EAECEF]">TradeHub</span>
           </div>
@@ -439,7 +416,6 @@ export default function SettingsPage() {
           <SidebarLink onClick={() => safeNavigate('/dashboard/pnl')} Icon={BarChart2} label={t.dashboard.sidebar.pnl_analysis} />
           <SidebarLink onClick={() => safeNavigate('/dashboard/certificates')} Icon={Award} label={t.dashboard.sidebar.certificates} />
           <SidebarLink onClick={() => safeNavigate('/dashboard/wallet')} Icon={Wallet} label={t.dashboard.sidebar.wallet} />
-          {/* MENU TAMBAHAN DENGAN IKON KONSISTEN */}
           <div className="pt-6 border-t border-[#2B3139]/50 mt-4 space-y-2">
               <SidebarLink onClick={() => safeNavigate('/hall-of-fame')} Icon={Star} label={t.dashboard.sidebar.hall_of_fame} />
               <SidebarLink onClick={() => safeNavigate('/handbook')} Icon={BookOpen} label={t.dashboard.sidebar.handbook} />
@@ -484,7 +460,6 @@ export default function SettingsPage() {
 
           <div className="flex items-center gap-4">
             <LanguageSwitcher />
-            {/* INTEGRASI IDENTITAS & TOMBOL PROFIL DALAM SATU KOMPONEN */}
             <button 
               onClick={() => safeNavigate(`/profile/${user?.id}`)}
               className="flex items-center gap-4 px-4 py-2 bg-[#1E2329] border border-[#2B3139] rounded-2xl hover:bg-[#2B3139] transition-all group active:scale-95 text-left shadow-lg"
@@ -576,52 +551,96 @@ export default function SettingsPage() {
 
             {/* AREA MFA AKTIVASI */}
             {mfaEnrollData && (
-              <div className="mt-6 bg-[#181A20] rounded-[2.5rem] border border-[#FCD535]/40 p-8 md:p-12 animate-in slide-in-from-top-4 duration-500 shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#FCD535] to-transparent opacity-30"></div>
-                
-                <div className="flex flex-col lg:flex-row gap-12 items-center">
-                  <div className="shrink-0 relative group">
-                    <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl flex flex-col items-center relative z-10 border-4 border-white overflow-hidden">
-                      <div 
-                        className="w-48 h-48 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full [&>svg]:block" 
-                        dangerouslySetInnerHTML={getQRCodeHtml(mfaEnrollData.qr_code)} 
-                      />
-                      <div className="mt-4 flex items-center gap-2 text-[10px] text-gray-500 font-black uppercase tracking-widest border-t border-gray-100 pt-3 w-full justify-center">
-                        <QrCode size={10} className="text-gray-400" /> Authenticator App
-                      </div>
-                    </div>
-                  </div>
+              <div className="mt-8 animate-in fade-in zoom-in-95 duration-500">
+                <div className="bg-[#181A20] rounded-[2.5rem] border border-[#FCD535]/30 overflow-hidden relative shadow-2xl">
+                   {/* Background Decorative */}
+                   <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/5 rounded-full blur-[80px] pointer-events-none"></div>
 
-                  <div className="flex-1 space-y-6 w-full">
-                    <div className="space-y-4 text-[#EAECEF]">
-                      <div className="flex items-start gap-4">
-                          <div className="w-10 h-10 rounded-2xl bg-[#FCD535] text-black flex items-center justify-center font-black shrink-0 shadow-lg">1</div>
-                          <p className="text-sm font-bold leading-relaxed">Open Google Authenticator or Authy app and scan the QR code.</p>
+                   <div className="p-8 lg:p-12 flex flex-col xl:flex-row gap-12 items-center xl:items-start relative z-10">
+                      {/* KOLOM KIRI: QR CODE & SECRET */}
+                      <div className="flex flex-col items-center gap-6 shrink-0 xl:border-r border-[#2B3139] xl:pr-12 w-full xl:w-auto">
+                         {/* Container QR Code - Menggunakan img tag standar */}
+                         <div className="bg-white p-4 rounded-3xl shadow-[0_0_40px_rgba(255,255,255,0.1)] flex items-center justify-center relative group">
+                            <img 
+                              src={mfaEnrollData.qr_code} 
+                              alt="Scan QR" 
+                              className="w-48 h-48 lg:w-56 lg:h-56 object-contain"
+                            />
+                            
+                            {/* Tombol Download Overlay */}
+                            <button 
+                              onClick={handleDownloadQR}
+                              className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white rounded-3xl backdrop-blur-sm"
+                            >
+                              <Download size={32} className="mb-2 text-[#FCD535]" />
+                              <span className="text-xs font-bold uppercase tracking-widest">Download</span>
+                            </button>
+                         </div>
+                         
+                         {/* Tombol Download Mobile (Visible always) */}
+                         <button 
+                            onClick={handleDownloadQR}
+                            className="lg:hidden flex items-center gap-2 text-[#FCD535] text-xs font-bold uppercase tracking-widest hover:text-white transition-colors"
+                         >
+                            <Download size={16} /> Download QR Image
+                         </button>
+                         
+                         <div className="w-full max-w-xs text-center space-y-3 mt-2">
+                            <p className="text-[10px] font-black text-[#848E9C] uppercase tracking-[0.2em]">Manual Entry Key</p>
+                            <div 
+                              className="flex items-center gap-3 bg-[#0B0E11] border border-[#2B3139] p-4 rounded-2xl group hover:border-[#FCD535]/50 transition-colors cursor-pointer active:scale-95 overflow-hidden" 
+                              onClick={() => { navigator.clipboard.writeText(mfaEnrollData.secret); showMsg("Secret key copied!"); }}
+                            >
+                               <KeyRound size={16} className="text-[#FCD535] shrink-0" />
+                               <code className="text-sm font-mono text-[#EAECEF] flex-1 truncate tracking-widest">{mfaEnrollData.secret}</code>
+                               <Copy size={16} className="text-[#474D57] group-hover:text-white shrink-0" />
+                            </div>
+                            <p className="text-[10px] text-[#474D57] break-words">Cannot scan? Enter this code manually in your authenticator app.</p>
+                         </div>
                       </div>
-                    </div>
-                    
-                    <div className="bg-[#0B0E11] p-2 rounded-[2rem] border border-[#2B3139] flex flex-col md:flex-row items-center gap-2 shadow-inner w-full">
-                      <input 
-                        type="text" 
-                        maxLength={6} 
-                        value={verificationCode}
-                        onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
-                        placeholder="000 000"
-                        className="flex-1 bg-transparent px-6 py-4 text-center font-mono text-3xl tracking-[0.2em] text-[#FCD535] outline-none"
-                      />
-                      <button 
-                        onClick={handleVerifyEnrollment} 
-                        disabled={is2FALoading || verificationCode.length < 6}
-                        className="bg-[#FCD535] text-black px-10 py-5 rounded-[1.4rem] font-black hover:bg-[#F0B90B] disabled:opacity-50 uppercase text-xs tracking-widest w-full md:w-auto"
-                      >
-                        {is2FALoading ? <Loader2 className="animate-spin" size={20} /> : "ENABLE"}
-                      </button>
-                    </div>
 
-                    <button onClick={handleCancelEnrollment} className="text-[10px] text-[#848E9C] hover:text-[#F6465D] uppercase tracking-widest font-black transition-colors px-4 py-2">
-                        Cancel Enrollment
-                    </button>
-                  </div>
+                      {/* KOLOM KANAN: INSTRUKSI & INPUT */}
+                      <div className="flex-1 flex flex-col justify-center space-y-8 w-full min-w-0">
+                          <div className="space-y-4">
+                             <h3 className="text-3xl font-black text-[#EAECEF] uppercase italic tracking-tighter">Setup Authenticator</h3>
+                             <p className="text-[#848E9C] text-sm leading-relaxed max-w-md break-words">
+                               Open <span className="text-white font-bold">Google Authenticator</span> or <span className="text-white font-bold">Authy</span> on your phone and scan the QR code. Enter the 6-digit code generated by the app to confirm setup.
+                             </p>
+                          </div>
+
+                          <div className="space-y-6">
+                             <div className="flex flex-col sm:flex-row gap-4">
+                                <div className="flex-1 bg-[#0B0E11] p-2 rounded-2xl border border-[#2B3139] focus-within:border-[#FCD535] transition-colors flex items-center shadow-inner">
+                                   <div className="w-14 h-14 rounded-xl bg-[#1E2329] flex items-center justify-center text-[#FCD535] shrink-0">
+                                      <Smartphone size={24} />
+                                   </div>
+                                   <input 
+                                      type="text" 
+                                      maxLength={6} 
+                                      value={verificationCode}
+                                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
+                                      placeholder="000 000"
+                                      className="flex-1 bg-transparent px-4 text-3xl font-mono tracking-[0.3em] text-white outline-none placeholder:text-[#2B3139] text-center sm:text-left h-full w-full min-w-0"
+                                   />
+                                </div>
+                             </div>
+
+                             <div className="flex flex-col sm:flex-row gap-4">
+                                <button 
+                                  onClick={handleVerifyEnrollment} 
+                                  disabled={is2FALoading || verificationCode.length < 6}
+                                  className="flex-1 bg-[#FCD535] text-black px-8 py-5 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-[#F0B90B] disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-[#FCD535]/10 flex items-center justify-center gap-2"
+                                >
+                                  {is2FALoading ? <Loader2 className="animate-spin" size={20} /> : <>ACTIVATE 2FA <CheckCircle size={18}/></>}
+                                </button>
+                                
+                                <button onClick={handleCancelEnrollment} className="px-6 py-5 rounded-2xl border border-[#2B3139] hover:bg-[#2B3139] text-[#848E9C] hover:text-[#EAECEF] transition-all font-bold uppercase tracking-widest text-xs">
+                                    Cancel
+                                </button>
+                             </div>
+                          </div>
+                      </div>
+                   </div>
                 </div>
               </div>
             )}
@@ -694,7 +713,7 @@ export default function SettingsPage() {
                    onClick={() => { setIsDeleteModalOpen(true); setDeleteInput(""); }}
                    className="bg-[#F6465D]/10 text-[#F6465D] border border-[#F6465D]/50 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#F6465D] hover:text-white transition active:scale-95"
                  >
-                    DELETE ACCOUNT
+                   DELETE ACCOUNT
                  </button>
                </div>
             </div>

@@ -17,20 +17,15 @@ import {
   Loader2,
   ShieldCheck,
   ShieldAlert,
-  KeyRound,
-  ArrowLeft
+  ArrowLeft,
+  Smartphone // Added icon for clarity
 } from 'lucide-react';
 
-/**
- * MENGGUNAKAN ESM CDN:
- * Menjamin library dimuat dengan stabil di lingkungan pratinjau.
- */
 import { createClient } from '@supabase/supabase-js';
 import { useLanguage } from '../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
 
 // --- KONFIGURASI SUPABASE ---
-// Gunakan nilai default kosong jika env var tidak ada (untuk build safety)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
@@ -133,16 +128,22 @@ export default function AuthPage() {
       const { data: factors, error } = await (supabase.auth as any).mfa.listFactors();
       if (error) throw error;
 
-      const totpFactor = factors.totp.find((f: any) => f.status === 'verified');
+      // Cari faktor TOTP yang sudah diverifikasi
+      // Gunakan Optional Chaining (?.) untuk keamanan jika totp undefined
+      const totpFactor = factors?.totp?.find((f: any) => f.status === 'verified');
+      
       if (totpFactor) {
         setMfaFactorId(totpFactor.id);
         setShowMFA(true);
+        // Pastikan loading dimatikan agar UI form MFA muncul
         setIsLoading(false); 
       } else {
+        // Jika tidak ada faktor verified tapi nextLevel AAL2, mungkin error state, amankan ke dashboard
         safeNavigate('/dashboard');
       }
     } catch (err) {
       console.error("Gagal inisialisasi MFA flow", err);
+      // Jika gagal list factors, lempar ke dashboard (fail safe)
       safeNavigate('/dashboard');
     }
   };
@@ -150,6 +151,7 @@ export default function AuthPage() {
   useEffect(() => {
     if (!supabase) return;
 
+    // Cek session saat load pertama
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
@@ -164,18 +166,19 @@ export default function AuthPage() {
     checkSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Deteksi jika user sedang dalam proses pemulihan sandi (klik link dari email)
       if (event === 'PASSWORD_RECOVERY') {
          safeNavigate('/auth/reset-password');
          return;
       }
 
-      if (session) {
-        const { data: authLevel } = await (supabase.auth as any).mfa.getAuthenticatorAssuranceLevel();
-        if (authLevel.nextLevel === 'aal2' && authLevel.currentLevel !== 'aal2') {
-          handleMFAFlow();
-        } else {
-          safeNavigate('/dashboard');
+      if (event === 'SIGNED_IN' && session) {
+        if (!isLoading) {
+            const { data: authLevel } = await (supabase.auth as any).mfa.getAuthenticatorAssuranceLevel();
+            if (authLevel.nextLevel === 'aal2' && authLevel.currentLevel !== 'aal2') {
+              handleMFAFlow();
+            } else {
+               if (!email && !password) safeNavigate('/dashboard');
+            }
         }
       }
     });
@@ -190,7 +193,7 @@ export default function AuthPage() {
         return;
     }
 
-    const cleanEmail = email.trim(); // TRIMMING: Penting agar tidak ralat spasi
+    const cleanEmail = email.trim(); 
     
     if (!cleanEmail) {
       showPopup('error', t.auth.errors.email_required, t.auth.errors.email_required_desc);
@@ -216,22 +219,48 @@ export default function AuthPage() {
         const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
         if (error) throw error;
 
+        // --- CEK MFA ---
+        const { data: authLevel } = await (supabase.auth as any).mfa.getAuthenticatorAssuranceLevel();
+        
+        if (authLevel.nextLevel === 'aal2' && authLevel.currentLevel !== 'aal2') {
+           await handleMFAFlow();
+           return; 
+        } else {
+           safeNavigate('/dashboard');
+           return;
+        }
+
       } else {
         // --- ALUR REGISTER ---
-        const { error } = await supabase.auth.signUp({
+        // PERBAIKAN: Menambahkan options emailRedirectTo
+        const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
-          options: { data: { full_name: fullName } },
+          options: { 
+            data: { full_name: fullName },
+            // Penting: Mengarahkan user kembali ke halaman auth setelah klik link di email
+            emailRedirectTo: `${window.location.origin}/auth` 
+          },
         });
         
         if (error) throw error;
-        showPopup('success', t.auth.errors.registration_success, t.auth.errors.registration_success_desc);
-        setIsLogin(true);
+
+        // PERBAIKAN: Cek apakah session langsung ada (berarti Auto Confirm aktif / tidak perlu verifikasi email)
+        if (data.session) {
+            showPopup('success', "Registration Successful", "Account created successfully! Logging you in...");
+            // Redirect akan ditangani otomatis oleh onAuthStateChange listener
+        } else {
+            // Jika session null, berarti email verifikasi SUDAH dikirim (atau kena limit)
+            showPopup('success', t.auth.errors.registration_success, "Registration successful! Please check your email (Inbox or Spam) to verify your account.");
+            setIsLogin(true);
+        }
       }
     } catch (err: any) {
       showPopup('error', t.auth.errors.access_denied, err.message || "Authentication protocol error occurred.");
     } finally {
-      setIsLoading(false);
+      if (!showMFA) {
+         setIsLoading(false);
+      }
     }
   };
 
@@ -294,7 +323,6 @@ export default function AuthPage() {
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-16 cursor-pointer group" onClick={() => safeNavigate('/')}>
-            {/* GANTI ICON DENGAN LOGO GAMBAR */}
             <div className="w-12 h-12 bg-[#FCD535] rounded-2xl flex items-center justify-center shadow-2xl shadow-[#FCD535]/20 group-hover:scale-110 transition-transform duration-500 overflow-hidden">
                <img src="/proofofachievement.jpg" alt="Proof Of Achievement" className="w-full h-full object-cover" />
             </div>
@@ -324,7 +352,7 @@ export default function AuthPage() {
         </div>
       </div>
 
-      {/* Bagian Kanan: Form Auth / MFA / Forgot Pass */}
+      {/* Bagian Kanan: Form Auth */}
       <div className="flex-1 flex flex-col justify-center px-8 sm:px-12 lg:px-24 py-16 bg-[#0B0E11] relative overflow-y-auto no-scrollbar">
         <div className="lg:hidden absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-[#FCD535] rounded-full blur-[100px] opacity-10 pointer-events-none"></div>
 
@@ -341,23 +369,25 @@ export default function AuthPage() {
 
                <div className="mb-12">
                   <div className="w-16 h-16 bg-[#FCD535]/10 border border-[#FCD535]/20 rounded-2xl flex items-center justify-center text-[#FCD535] mb-6 mx-auto lg:mx-0 shadow-lg">
-                     <ShieldAlert size={32} />
+                      <ShieldAlert size={32} />
                   </div>
                   <h2 className="text-4xl font-black mb-3 text-[#EAECEF] tracking-tighter uppercase italic leading-none">{t.auth.mfa_required}</h2>
                   <p className="text-[#848E9C] font-medium leading-relaxed italic">
-                     {t.auth.mfa_desc}
+                      {/* Klarifikasi: Gunakan Aplikasi Authenticator */}
+                      Enter the 6-digit code from your <strong>Authenticator App</strong> (Google Authenticator/Authy).
                   </p>
                </div>
 
                <form onSubmit={handleVerifyMFA} className="space-y-8">
-                  <div className="bg-[#1E2329] p-2 rounded-[2rem] border border-[#2B3139] shadow-inner flex flex-col items-center group focus-within:border-[#FCD535] transition-colors">
-                     <input 
-                       type="text" maxLength={6} value={mfaCode}
-                       onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
-                       placeholder="000 000"
-                       className="w-full bg-transparent px-6 py-8 text-center font-mono text-5xl tracking-[0.2em] text-[#FCD535] outline-none"
-                       autoFocus
-                     />
+                  <div className="bg-[#1E2329] p-2 rounded-[2rem] border border-[#2B3139] shadow-inner flex flex-col items-center group focus-within:border-[#FCD535] transition-colors relative">
+                      <Smartphone className="absolute left-6 top-1/2 -translate-y-1/2 text-[#474D57] group-focus-within:text-[#FCD535] transition-colors" size={24} />
+                      <input 
+                        type="text" maxLength={6} value={mfaCode}
+                        onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
+                        placeholder="000 000"
+                        className="w-full bg-transparent px-6 py-8 text-center font-mono text-5xl tracking-[0.2em] text-[#FCD535] outline-none"
+                        autoFocus
+                      />
                   </div>
 
                   <button 
@@ -372,7 +402,6 @@ export default function AuthPage() {
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                <div className="lg:hidden flex items-center gap-2 mb-12 justify-center" onClick={() => safeNavigate('/')}>
                  <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg shadow-[#FCD535]/10 overflow-hidden">
-                    {/* GANTI ICON DENGAN LOGO GAMBAR (MOBILE) */}
                    <img src="/proofofachievement.jpg" alt="TradeHub" className="w-full h-full object-cover" />
                  </div>
                  <span className="text-2xl font-black uppercase italic tracking-tighter">TradeHub</span>
