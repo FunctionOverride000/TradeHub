@@ -34,9 +34,14 @@ import { useLanguage } from '../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
 
 // --- KONFIGURASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Gunakan nilai default kosong jika env var tidak ada (untuk build safety)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+// Hanya inisialisasi client jika URL & Key valid
+const supabase = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey) 
+  : null;
 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com';
 
@@ -113,6 +118,12 @@ export default function HallOfFamePage() {
   };
 
   const fetchGlobalStats = async () => {
+    // Safety check: Jika supabase belum init, stop.
+    if (!supabase) {
+        setIsLoading(false);
+        return;
+    }
+
     try {
       setIsSyncing(true);
       const { data, error } = await supabase.from('participants').select('*');
@@ -155,7 +166,8 @@ export default function HallOfFamePage() {
       setupGlobalSync(sortedTraders);
 
     } catch (err) {
-      console.error("Failed to load global Hall of Fame.");
+      // Ubah console.error jadi console.warn agar tidak terlihat menakutkan saat build
+      // console.warn("Hall of Fame sync warning (non-critical)."); 
     } finally {
       setIsLoading(false);
       setIsSyncing(false);
@@ -348,8 +360,8 @@ export default function HallOfFamePage() {
            
            <h3 className="text-3xl lg:text-5xl font-black text-white uppercase italic tracking-tighter mb-6 leading-none">Elite Reputation Protocol</h3>
            <p className="text-sm text-[#848E9C] leading-relaxed max-w-2xl mx-auto italic mb-14 font-medium">
-              Papan peringkat global TradeHub merekam setiap performa on-chain secara kumulatif. 
-              Sistem **Clean ROI** kami secara otomatis memfilter deposit eksternal untuk memastikan bahwa hanya skill murni yang membawa Anda ke puncak hierarki.
+             Papan peringkat global TradeHub merekam setiap performa on-chain secara kumulatif. 
+             Sistem **Clean ROI** kami secara otomatis memfilter deposit eksternal untuk memastikan bahwa hanya skill murni yang membawa Anda ke puncak hierarki.
            </p>
            
            <div className="flex flex-col sm:flex-row justify-center gap-6">

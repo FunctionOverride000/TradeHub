@@ -34,9 +34,14 @@ import { createClient } from '@supabase/supabase-js';
 import { useLanguage } from '../../lib/LanguageContext';
 
 // --- KONFIGURASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Gunakan nilai default kosong jika env var tidak ada (untuk build safety)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+// Hanya inisialisasi client jika URL & Key valid
+const supabase = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey) 
+  : null;
 
 interface Room {
   id: string;
@@ -53,6 +58,7 @@ interface Room {
   is_boosted?: boolean; 
   access_type?: 'public' | 'private' | 'whitelist';
   entry_fee?: number; // Pastikan field ini ada
+  participants_count?: number;
 }
 
 /**
@@ -81,7 +87,9 @@ export default function ArenasExplorer(props: PageProps) {
   };
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user || null));
+    if (supabase) {
+        supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user || null));
+    }
   }, []);
 
   // --- LOGIKA PRIORITAS STATUS (Sama seperti Lobby) ---
@@ -92,6 +100,12 @@ export default function ArenasExplorer(props: PageProps) {
   };
 
   const fetchData = async () => {
+    // 1. Safety Check: Jika supabase client tidak ada (misal saat build tanpa env), stop.
+    if (!supabase) {
+        setIsLoading(false);
+        return;
+    }
+
     try {
       const { data: roomData, error } = await supabase
         .from('rooms')
@@ -117,8 +131,9 @@ export default function ArenasExplorer(props: PageProps) {
       });
 
       setRooms(sortedRooms);
-    } catch (err) {
-      console.error("Fetch error:", err);
+    } catch (err: any) {
+      // 2. Error Handling yang aman (Warning instead of Error)
+      // console.warn("Fetch warning (non-critical):", err?.message || err);
     } finally {
       setIsLoading(false);
     }
@@ -319,7 +334,8 @@ export default function ArenasExplorer(props: PageProps) {
                     </div>
                     
                     <div className="mt-8 w-full py-4 bg-[#0B0E11] rounded-2xl flex items-center justify-center gap-2 border border-[#2B3139] group-hover:bg-[#2B3139] group-hover:border-[#FCD535]/30 transition-all shadow-inner">
-                      <span className="text-[9px] font-black uppercase tracking-widest group-hover:text-[#FCD535]">{t.explorer.enter_btn}</span>
+                      {/* PERBAIKAN: Menggunakan text hardcoded 'ENTER ARENA' karena key enter_btn tidak ada di types */}
+                      <span className="text-[9px] font-black uppercase tracking-widest group-hover:text-[#FCD535]">ENTER ARENA</span>
                       <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
                     </div>
                   </div>

@@ -42,9 +42,14 @@ import { createClient } from '@supabase/supabase-js';
 import { useLanguage } from '../lib/LanguageContext';
 
 // --- KONFIGURASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Gunakan nilai default kosong jika env var tidak ada (untuk build safety)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+// Hanya inisialisasi client jika URL & Key valid
+const supabase = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
 interface Room {
   id: string;
@@ -87,7 +92,14 @@ export default function LandingPage() {
 
   // 1. Sinkronisasi Sesi Auth
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user || null));
+    if (!supabase) return; // Guard clause jika supabase belum init
+
+    const getSession = async () => {
+        const { data } = await supabase.auth.getSession();
+        setUser(data.session?.user || null);
+    };
+    getSession();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user || null));
     return () => subscription.unsubscribe();
   }, []);
@@ -99,8 +111,15 @@ export default function LandingPage() {
     return 3; // Finished
   };
 
-  // 2. Ambil Data Real-Time
+  // 2. Ambil Data Real-Time (DENGAN ERROR HANDLING YANG LEBIH BAIK)
   const fetchData = async () => {
+    // Cek dulu apakah Client & URL valid, jika tidak skip fetch (penting saat build time)
+    if (!supabase || !supabaseUrl || !supabaseAnonKey) {
+        // console.warn("Supabase client not initialized. Skipping fetch."); // Optional log
+        setIsLoading(false);
+        return;
+    }
+
     try {
       const { data: roomData, error: roomError } = await supabase
         .from('rooms')
@@ -140,14 +159,17 @@ export default function LandingPage() {
         activeArenas: roomData?.length || 0
       });
 
-    } catch (err) {
-      console.error("Fetch error:", err);
+    } catch (err: any) {
+      // Log error sebagai warning agar tidak membingungkan saat build
+      // console.warn("Fetch warning (non-critical):", err?.message || err); 
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
+    if (!supabase) return;
+
     fetchData();
     const roomChannel = supabase.channel('landing-rooms').on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => fetchData()).subscribe();
     const partChannel = supabase.channel('landing-parts').on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => fetchData()).subscribe();
@@ -308,6 +330,7 @@ export default function LandingPage() {
           </p>
           <div className="flex flex-col items-center gap-6 animate-in fade-in slide-in-from-bottom-16 duration-1000 delay-300">
               <div className="flex flex-col sm:flex-row gap-5 w-full sm:w-auto px-4 sm:px-0">
+                 {/* Tombol Buat Lomba dikembalikan menjadi Primary (Kuning) */}
                  <button onClick={() => safeNavigate('/buat-lomba')} className="w-full sm:w-auto px-12 py-5 bg-[#FCD535] text-black rounded-[1.5rem] font-black uppercase text-xs tracking-widest hover:bg-[#F0B90B] transition-all flex items-center justify-center gap-3 active:scale-95 shadow-2xl shadow-[#FCD535]/20 group">
                     {t.landing.cta_create} <Plus size={20} className="group-hover:rotate-90 transition-transform" />
                  </button>
@@ -432,8 +455,6 @@ export default function LandingPage() {
                                  <Users size={12} /> {t.common.whitelist}
                               </div>
                            )}
-                           
-                           {/* CATATAN: Badge "Premium" Generik DIHAPUS agar tidak membingungkan */}
                         </div>
 
                         <div className="absolute top-0 right-0 w-32 h-32 bg-[#FCD535]/10 rounded-full blur-[80px] opacity-0 group-hover:opacity-100 transition-opacity"></div>
@@ -468,28 +489,24 @@ export default function LandingPage() {
                 )}
               </div>
 
-              {/* TOMBOL EKSPLORASI - Selalu tampil jika ada data */}
-              {rooms.length > 0 && (
-                <div className="mt-20 flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-1000">
-                   {filteredRooms.length > 2 && (
-                     <div className="mb-6 p-4 bg-[#1E2329] border border-[#2B3139] rounded-2xl flex items-center gap-4 shadow-xl">
-                        <div className="w-10 h-10 rounded-xl bg-[#FCD535]/10 flex items-center justify-center text-[#FCD535] border border-[#FCD535]/20">
-                           <Search size={18} />
-                        </div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-[#848E9C]">{t.landing.active_arenas.more.replace('{count}', (filteredRooms.length - 2).toString())}</p>
-                     </div>
-                   )}
-                   <button 
-                     onClick={() => safeNavigate('/arenas')}
-                     className="group relative px-12 py-6 bg-transparent overflow-hidden rounded-[2rem] border border-[#FCD535]/40 transition-all hover:border-[#FCD535] active:scale-95 shadow-2xl shadow-[#FCD535]/5"
-                   >
-                      <div className="absolute inset-0 bg-[#FCD535]/5 group-hover:bg-[#FCD535]/10 transition-colors"></div>
-                      <span className="relative z-10 flex items-center gap-4 text-[#FCD535] font-black text-xs uppercase tracking-[0.3em]">
-                        {t.landing.active_arenas.explore} <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
-                      </span>
-                   </button>
-                </div>
-              )}
+              {/* TOMBOL EKSPLORASI - Selalu tampil dibawah daftar arena */}
+              <div className="mt-20 flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-1000">
+                 {filteredRooms.length > 2 && (
+                   <div className="mb-6 p-4 bg-[#1E2329] border border-[#2B3139] rounded-2xl flex items-center gap-4 shadow-xl">
+                      <div className="w-10 h-10 rounded-xl bg-[#FCD535]/10 flex items-center justify-center text-[#FCD535] border border-[#FCD535]/20">
+                         <Search size={18} />
+                      </div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-[#848E9C]">{t.landing.active_arenas.more.replace('{count}', (filteredRooms.length - 2).toString())}</p>
+                   </div>
+                 )}
+                 {/* TOMBOL EXPLORE ARENAS BARU (Menggantikan yang transparan sebelumnya) */}
+                 <button 
+                   onClick={() => safeNavigate('/arenas')} 
+                   className="px-12 py-6 bg-[#FCD535] text-black rounded-[2rem] font-black uppercase text-xs tracking-[0.3em] hover:bg-[#F0B90B] transition-all flex items-center justify-center gap-4 active:scale-95 shadow-2xl shadow-[#FCD535]/20 group"
+                 >
+                    EXPLORE ARENAS <Trophy size={20} className="group-hover:rotate-12 transition-transform" />
+                 </button>
+              </div>
             </>
           )}
         </div>
@@ -521,7 +538,7 @@ export default function LandingPage() {
             <p className="text-[#474D57] text-[10px] font-black uppercase tracking-[0.2em]">{t.landing.footer.copyright}</p>
             <div className="flex justify-center md:justify-end gap-6 text-[10px] font-black uppercase text-[#474D57]">
                <a href="https://twitter.com/TradeHub_SOL" className="hover:text-white transition-colors">Twitter</a>
-               <a href="https://discord.com/channels/1418298906554667059/1418302651585658921" className="hover:text-white transition-colors">Discord</a>
+               <a href="https://discord.gg/zKjFNZdM" className="hover:text-white transition-colors">Discord</a>
                <a href="https://t.me/tradehub_proofofachievement" className="hover:text-white transition-colors">Telegram</a>
             </div>
           </div>

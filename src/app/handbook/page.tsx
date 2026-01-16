@@ -324,7 +324,7 @@ export default function HandbookPage() {
                       icon={<img src="/Discord.png" alt="Discord" className="w-10 h-10 object-contain" />}
                       name="Discord"
                       desc="Hub komunitas utama, voice chat, dan support tiket."
-                      link="https://discord.com/channels/1418298906554667059/1418302651585658921"
+                      link="https://discord.gg/zKjFNZdM"
                       color="bg-[#5865F2]"
                    />
                    <SocialCard 

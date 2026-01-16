@@ -27,13 +27,14 @@ import {
   AlertTriangle, 
   Eye, 
   EyeOff, 
-  KeyRound,
+  KeyRound, 
   QrCode,
   X,
   Menu,
   Shield,
   Star,
-  BookOpen
+  BookOpen,
+  Trash2
 } from 'lucide-react';
 
 /**
@@ -45,9 +46,14 @@ import { useLanguage } from '../../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../../lib/LanguageSwitcher';
 
 // --- INISIALISASI SUPABASE ---
-const supabaseUrl = 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Menggunakan Environment Variable untuk keamanan dan fleksibilitas deploy
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+// Hanya inisialisasi client jika URL & Key valid
+const supabase = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey) 
+  : null;
 
 export default function SettingsPage() {
   const { t } = useLanguage();
@@ -75,6 +81,12 @@ export default function SettingsPage() {
   const [showPass, setShowPass] = useState(false);
   const [passLoading, setPassLoading] = useState(false);
 
+  // State Hapus Akun
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteInput, setDeleteInput] = useState(""); // Input untuk Password ATAU Kode 2FA
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeletePass, setShowDeletePass] = useState(false); // Toggle lihat password di modal hapus
+
   // State Pesan UI
   const [uiMessage, setUiMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
 
@@ -90,42 +102,57 @@ export default function SettingsPage() {
   // 1. Sinkronisasi Sesi & Cek Status MFA
   useEffect(() => {
     const init = async () => {
+      // Safety check: Jika supabase client belum siap, stop.
+      if (!supabase) {
+          setIsLoading(false);
+          return;
+      }
+
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        
+        if (error || !user) {
+          console.warn("Session expired or invalid, redirecting to auth:", error?.message);
+          await supabase.auth.signOut(); 
           safeNavigate('/auth');
           return;
         }
-        const currentUser = session.user;
-        setUser(currentUser);
-        setEmail(currentUser.email || "");
-        setFullName(currentUser.user_metadata?.full_name || "");
+
+        setUser(user);
+        setEmail(user.email || "");
+        setFullName(user.user_metadata?.full_name || "");
         
-        setIsNotifActive(currentUser.user_metadata?.notif_active !== false);
+        setIsNotifActive(user.user_metadata?.notif_active !== false);
 
         await checkMFAStatus();
       } catch (err) {
         console.error("Gagal memuat sesi:", err);
+        safeNavigate('/auth');
       } finally {
         setIsLoading(false);
       }
     };
     init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) safeNavigate('/auth');
-      else setUser(session.user);
-    });
-
-    return () => subscription.unsubscribe();
+    if (supabase) {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === 'SIGNED_OUT' || !session) {
+             safeNavigate('/auth');
+          } else if (event === 'TOKEN_REFRESHED') {
+             setUser(session.user);
+          }
+        });
+        return () => subscription.unsubscribe();
+    }
   }, []);
 
   const checkMFAStatus = async () => {
+    if (!supabase) return;
     try {
       const { data: factors, error } = await (supabase.auth as any).mfa.listFactors();
-      if (error) return;
+      if (error) throw error;
       
-      const activeFactor = factors.totp.find((f: any) => f.status === 'verified');
+      const activeFactor = factors?.totp?.find((f: any) => f.status === 'verified');
       if (activeFactor) {
         setIs2FAEnabled(true);
         setMfaFactorId(activeFactor.id);
@@ -133,18 +160,18 @@ export default function SettingsPage() {
         setIs2FAEnabled(false);
         setMfaFactorId(null);
       }
-    } catch (err) {
-      console.error("Gagal cek status MFA", err);
+    } catch (err: any) {
+      console.error("Gagal cek status MFA", err.message);
     }
   };
 
   // --- LOGIKA REAL MFA / 2FA ---
   const handleStartEnroll2FA = async () => {
-    if (is2FALoading) return;
+    if (is2FALoading || !supabase) return;
     setIs2FALoading(true);
     try {
       const { data: factors } = await (supabase.auth as any).mfa.listFactors();
-      const unverifiedFactors = factors?.totp.filter((f: any) => f.status === 'unverified') || [];
+      const unverifiedFactors = factors?.totp?.filter((f: any) => f.status === 'unverified') || [];
       for (const factor of unverifiedFactors) {
         await (supabase.auth as any).mfa.unenroll({ factorId: factor.id });
       }
@@ -158,14 +185,14 @@ export default function SettingsPage() {
       if (error) throw error;
       setMfaEnrollData({ qr_code: data.totp.qr_code, id: data.id });
     } catch (err: any) {
-      showMsg(err.message, 'error');
+      showMsg(err.message || "Failed to start enrollment", 'error');
     } finally {
       setIs2FALoading(false);
     }
   };
 
   const handleCancelEnrollment = async () => {
-    if (!mfaEnrollData) return;
+    if (!mfaEnrollData || !supabase) return;
     setIs2FALoading(true);
     try {
       await (supabase.auth as any).mfa.unenroll({ factorId: mfaEnrollData.id });
@@ -180,7 +207,7 @@ export default function SettingsPage() {
   };
 
   const handleVerifyEnrollment = async () => {
-    if (!mfaEnrollData || !verificationCode) return;
+    if (!mfaEnrollData || !verificationCode || !supabase) return;
     setIs2FALoading(true);
     try {
       const { data: challengeData, error: challengeError } = await (supabase.auth as any).mfa.challenge({
@@ -209,7 +236,7 @@ export default function SettingsPage() {
   };
 
   const handleUnenroll2FA = async () => {
-    if (!mfaFactorId || !window.confirm("Are you sure you want to disable 2FA?")) return;
+    if (!mfaFactorId || !window.confirm("Are you sure you want to disable 2FA?") || !supabase) return;
     setIs2FALoading(true);
     try {
       await (supabase.auth as any).mfa.unenroll({ factorId: mfaFactorId });
@@ -225,6 +252,7 @@ export default function SettingsPage() {
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!supabase) return;
     setIsSaving(true);
     try {
       const { error } = await supabase.auth.updateUser({ data: { full_name: fullName } });
@@ -239,6 +267,7 @@ export default function SettingsPage() {
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!supabase) return;
     if (newPassword !== confirmPassword) {
       showMsg("Passwords do not match!", 'error');
       return;
@@ -257,7 +286,7 @@ export default function SettingsPage() {
   };
 
   const handleToggleNotif = async () => {
-    if (isNotifLoading) return;
+    if (isNotifLoading || !supabase) return;
     setIsNotifLoading(true);
     const newState = !isNotifActive;
     try {
@@ -274,8 +303,86 @@ export default function SettingsPage() {
     }
   };
 
+  // --- LOGIKA HAPUS AKUN (SMART VERIFICATION & HARD DELETE) ---
+  const handleConfirmDelete = async () => {
+    if (!supabase || !deleteInput || !user) return;
+    setIsDeleting(true);
+
+    try {
+      // 1. Verifikasi Kepemilikan (Password atau 2FA)
+      if (is2FAEnabled && mfaFactorId) {
+        // --- SKENARIO 1: 2FA AKTIF (Verifikasi Kode) ---
+        const { data: challenge, error: challengeError } = await (supabase.auth as any).mfa.challenge({ factorId: mfaFactorId });
+        if (challengeError) throw challengeError;
+
+        const { error: verifyError } = await (supabase.auth as any).mfa.verify({
+          factorId: mfaFactorId,
+          challengeId: challenge.id,
+          code: deleteInput
+        });
+
+        if (verifyError) throw new Error("Kode 2FA salah atau kadaluarsa.");
+
+      } else {
+        // --- SKENARIO 2: 2FA NON-AKTIF (Verifikasi Password) ---
+        const { error: authError } = await supabase.auth.signInWithPassword({
+          email: email,
+          password: deleteInput
+        });
+
+        if (authError) throw new Error("Kata sandi salah.");
+      }
+
+      // 2. HAPUS DATA USER (KECUALI ROOMS)
+      // Kita hanya menghapus data partisipasi. Room tetap aman.
+      
+      const { error: deleteDataError } = await supabase.from('participants').delete().eq('user_id', user.id);
+      
+      if (deleteDataError) {
+        console.error("Gagal hapus data partisipan:", deleteDataError);
+      }
+
+      // 3. HARD DELETE AKUN AUTH (Membutuhkan Edge Function 'delete-user')
+      const { error: deleteFuncError } = await supabase.functions.invoke('delete-user');
+      
+      if (deleteFuncError) {
+         console.error("Gagal menghapus user via function:", deleteFuncError);
+         // Jika gagal hapus permanen, lempar error agar user tahu
+         throw new Error("Gagal menghapus akun dari sistem autentikasi. Pastikan fungsi 'delete-user' sudah dideploy.");
+      }
+
+      // 4. Logout Paksa dan Bersihkan Sesi Lokal
+      await supabase.auth.signOut();
+      
+      if (typeof window !== 'undefined') {
+        localStorage.clear();
+        sessionStorage.clear();
+        // Hapus semua cookie yang mungkin tersisa
+        document.cookie.split(";").forEach((c) => {
+          document.cookie = c
+            .replace(/^ +/, "")
+            .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+        });
+      }
+
+      setIsDeleteModalOpen(false);
+      
+      // Redirect Paksa menggunakan window.location.href untuk refresh total
+      window.location.href = '/auth'; 
+      
+    } catch (err: any) {
+      showMsg(err.message || "Gagal menghapus akun.", 'error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleLogout = async () => {
+    if (!supabase) return;
     await supabase.auth.signOut();
+    if (typeof window !== 'undefined') {
+        localStorage.clear();
+    }
     safeNavigate('/auth');
   };
 
@@ -334,9 +441,9 @@ export default function SettingsPage() {
           <SidebarLink onClick={() => safeNavigate('/dashboard/wallet')} Icon={Wallet} label={t.dashboard.sidebar.wallet} />
           {/* MENU TAMBAHAN DENGAN IKON KONSISTEN */}
           <div className="pt-6 border-t border-[#2B3139]/50 mt-4 space-y-2">
-             <SidebarLink onClick={() => safeNavigate('/hall-of-fame')} Icon={Star} label={t.dashboard.sidebar.hall_of_fame} />
-             <SidebarLink onClick={() => safeNavigate('/handbook')} Icon={BookOpen} label={t.dashboard.sidebar.handbook} />
-             <SidebarLink Icon={SettingsIcon} label={t.dashboard.sidebar.settings} active />
+              <SidebarLink onClick={() => safeNavigate('/hall-of-fame')} Icon={Star} label={t.dashboard.sidebar.hall_of_fame} />
+              <SidebarLink onClick={() => safeNavigate('/handbook')} Icon={BookOpen} label={t.dashboard.sidebar.handbook} />
+              <SidebarLink Icon={SettingsIcon} label={t.dashboard.sidebar.settings} active />
           </div>
         </nav>
         <div className="p-6 border-t border-[#2B3139]">
@@ -488,8 +595,8 @@ export default function SettingsPage() {
                   <div className="flex-1 space-y-6 w-full">
                     <div className="space-y-4 text-[#EAECEF]">
                       <div className="flex items-start gap-4">
-                         <div className="w-10 h-10 rounded-2xl bg-[#FCD535] text-black flex items-center justify-center font-black shrink-0 shadow-lg">1</div>
-                         <p className="text-sm font-bold leading-relaxed">Open Google Authenticator or Authy app and scan the QR code.</p>
+                          <div className="w-10 h-10 rounded-2xl bg-[#FCD535] text-black flex items-center justify-center font-black shrink-0 shadow-lg">1</div>
+                          <p className="text-sm font-bold leading-relaxed">Open Google Authenticator or Authy app and scan the QR code.</p>
                       </div>
                     </div>
                     
@@ -512,7 +619,7 @@ export default function SettingsPage() {
                     </div>
 
                     <button onClick={handleCancelEnrollment} className="text-[10px] text-[#848E9C] hover:text-[#F6465D] uppercase tracking-widest font-black transition-colors px-4 py-2">
-                       Cancel Enrollment
+                        Cancel Enrollment
                     </button>
                   </div>
                 </div>
@@ -561,8 +668,99 @@ export default function SettingsPage() {
               </form>
             </div>
           </div>
+
+          {/* Section: Hapus Akun (Danger Zone) */}
+          <div className="mb-12">
+            <h2 className="text-[10px] font-black text-[#F6465D] uppercase tracking-[0.4em] px-2 mb-6 flex items-center gap-2">
+              <Trash2 size={14} /> Danger Zone
+            </h2>
+            
+            <div className="bg-[#1E2329] rounded-[2rem] border border-[#F6465D]/30 p-8 shadow-2xl relative overflow-hidden">
+               <div className="absolute top-0 left-0 w-full h-1 bg-[#F6465D] opacity-50"></div>
+               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                 <div>
+                    <h3 className="text-white font-bold text-lg mb-2">Delete Account</h3>
+                    <p className="text-[#848E9C] text-xs leading-relaxed max-w-md">
+                       Permanently remove your account and all associated data from TradeHub. 
+                       <span className="block mt-2 text-[#F6465D] font-bold">
+                         {is2FAEnabled ? "Requires 2FA verification." : "Requires password confirmation."}
+                       </span>
+                       <span className="block mt-1 text-[#0ECB81] italic">
+                         * Arenas created by you will remain active on the platform.
+                       </span>
+                    </p>
+                 </div>
+                 <button 
+                   onClick={() => { setIsDeleteModalOpen(true); setDeleteInput(""); }}
+                   className="bg-[#F6465D]/10 text-[#F6465D] border border-[#F6465D]/50 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#F6465D] hover:text-white transition active:scale-95"
+                 >
+                    DELETE ACCOUNT
+                 </button>
+               </div>
+            </div>
+          </div>
         </div>
       </main>
+
+      {/* --- MODAL HAPUS AKUN --- */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-[150] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-200">
+           <div className="bg-[#1E2329] rounded-[2.5rem] border border-[#F6465D]/50 w-full max-w-lg shadow-2xl relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-[#F6465D]/5 rounded-full blur-[100px] pointer-events-none"></div>
+              
+              <div className="p-10 relative z-10">
+                 {/* Header Modal */}
+                 <div className="flex justify-between items-start mb-8">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center border shadow-inner bg-[#F6465D]/10 text-[#F6465D] border-[#F6465D]/20">
+                       <AlertTriangle size={28} />
+                    </div>
+                    <button onClick={() => setIsDeleteModalOpen(false)} className="p-2 text-[#474D57] hover:text-white transition-colors bg-[#0B0E11] rounded-xl border border-[#2B3139]">
+                       <X size={18} />
+                    </button>
+                 </div>
+
+                 <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-4 leading-none">Confirm Deletion</h3>
+                 <p className="text-sm text-[#848E9C] leading-relaxed mb-6 font-medium border-l-2 border-[#F6465D] pl-4">
+                    This action will strictly delete your public profile and trading history. 
+                    <span className="text-[#0ECB81] block mt-1">Your created Arenas will NOT be deleted.</span>
+                    <br/>
+                    {is2FAEnabled 
+                      ? "Please enter the code from your authenticator app." 
+                      : "Please enter your password to confirm ownership."
+                    }
+                 </p>
+                 
+                 <div className="relative mb-8">
+                    <input 
+                        type={!is2FAEnabled && !showDeletePass ? "password" : "text"}
+                        value={deleteInput}
+                        onChange={(e) => setDeleteInput(e.target.value)}
+                        placeholder={is2FAEnabled ? "Enter 6-digit 2FA Code" : "Enter Password"}
+                        className={`w-full bg-[#0B0E11] p-4 rounded-xl border border-[#2B3139] text-center font-bold text-sm tracking-wide text-white focus:border-[#F6465D] outline-none ${is2FAEnabled ? 'font-mono tracking-[0.5em] text-xl' : ''}`}
+                        maxLength={is2FAEnabled ? 6 : undefined}
+                    />
+                    {!is2FAEnabled && (
+                      <button 
+                        type="button" 
+                        onClick={() => setShowDeletePass(!showDeletePass)} 
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-[#474D57] hover:text-[#848E9C]"
+                      >
+                        {showDeletePass ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    )}
+                 </div>
+                 
+                 <button 
+                    onClick={handleConfirmDelete}
+                    disabled={isDeleting || !deleteInput}
+                    className="w-full py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all bg-[#F6465D] text-white hover:bg-[#D9344A] shadow-lg shadow-[#F6465D]/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                    {isDeleting ? <Loader2 size={16} className="animate-spin"/> : "CONFIRM DELETION"}
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 }

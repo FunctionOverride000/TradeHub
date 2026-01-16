@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",
+    "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.88.0",
     "axios": "^1.13.2",
     "firebase": "^12.7.0",

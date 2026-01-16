@@ -30,9 +30,14 @@ import { useLanguage } from '../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
 
 // --- KONFIGURASI SUPABASE ---
-const supabaseUrl = 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Gunakan nilai default kosong jika env var tidak ada (untuk build safety)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+// Hanya inisialisasi client jika URL & Key valid
+const supabase = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
 // --- KOMPONEN POPUP (MODAL) ---
 type PopupProps = {
@@ -122,7 +127,29 @@ export default function AuthPage() {
     window.location.href = path;
   };
 
+  const handleMFAFlow = async () => {
+    if (!supabase) return;
+    try {
+      const { data: factors, error } = await (supabase.auth as any).mfa.listFactors();
+      if (error) throw error;
+
+      const totpFactor = factors.totp.find((f: any) => f.status === 'verified');
+      if (totpFactor) {
+        setMfaFactorId(totpFactor.id);
+        setShowMFA(true);
+        setIsLoading(false); 
+      } else {
+        safeNavigate('/dashboard');
+      }
+    } catch (err) {
+      console.error("Gagal inisialisasi MFA flow", err);
+      safeNavigate('/dashboard');
+    }
+  };
+
   useEffect(() => {
+    if (!supabase) return;
+
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
@@ -156,27 +183,13 @@ export default function AuthPage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleMFAFlow = async () => {
-    try {
-      const { data: factors, error } = await (supabase.auth as any).mfa.listFactors();
-      if (error) throw error;
-
-      const totpFactor = factors.totp.find((f: any) => f.status === 'verified');
-      if (totpFactor) {
-        setMfaFactorId(totpFactor.id);
-        setShowMFA(true);
-        setIsLoading(false); 
-      } else {
-        safeNavigate('/dashboard');
-      }
-    } catch (err) {
-      console.error("Gagal inisialisasi MFA flow", err);
-      safeNavigate('/dashboard');
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!supabase) {
+        showPopup('error', "System Error", "Authentication service unavailable.");
+        return;
+    }
+
     const cleanEmail = email.trim(); // TRIMMING: Penting agar tidak ralat spasi
     
     if (!cleanEmail) {
@@ -197,10 +210,12 @@ export default function AuthPage() {
         
         showPopup('success', t.auth.errors.email_sent, `Recovery instructions have been sent to ${cleanEmail}. Please check your inbox or spam folder.`);
         setIsForgotPassword(false);
+
       } else if (isLogin) {
         // --- ALUR LOGIN ---
         const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
         if (error) throw error;
+
       } else {
         // --- ALUR REGISTER ---
         const { error } = await supabase.auth.signUp({
@@ -221,6 +236,7 @@ export default function AuthPage() {
   };
 
   const handleSocialLogin = async (provider: 'google' | 'github') => {
+    if (!supabase) return;
     setIsLoading(true);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -236,7 +252,7 @@ export default function AuthPage() {
 
   const handleVerifyMFA = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mfaFactorId || mfaCode.length < 6) return;
+    if (!supabase || !mfaFactorId || mfaCode.length < 6) return;
     setIsLoading(true);
 
     try {
@@ -278,8 +294,9 @@ export default function AuthPage() {
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-16 cursor-pointer group" onClick={() => safeNavigate('/')}>
-            <div className="w-12 h-12 bg-[#FCD535] rounded-2xl flex items-center justify-center shadow-2xl shadow-[#FCD535]/20 group-hover:scale-110 transition-transform duration-500">
-              <TrendingUp className="text-black w-7 h-7" />
+            {/* GANTI ICON DENGAN LOGO GAMBAR */}
+            <div className="w-12 h-12 bg-[#FCD535] rounded-2xl flex items-center justify-center shadow-2xl shadow-[#FCD535]/20 group-hover:scale-110 transition-transform duration-500 overflow-hidden">
+               <img src="/proofofachievement.jpg" alt="Proof Of Achievement" className="w-full h-full object-cover" />
             </div>
             <span className="text-3xl font-black tracking-tighter uppercase italic leading-none">TradeHub</span>
           </div>
@@ -318,7 +335,7 @@ export default function AuthPage() {
           
           {showMFA ? (
             <div className="animate-in fade-in slide-in-from-right-4 duration-500 text-center lg:text-left">
-               <button onClick={() => { setShowMFA(false); supabase.auth.signOut(); }} className="mb-12 flex items-center gap-2 text-[#474D57] hover:text-[#FCD535] transition-all font-black text-[10px] uppercase tracking-[0.3em] group">
+               <button onClick={() => { setShowMFA(false); if(supabase) supabase.auth.signOut(); }} className="mb-12 flex items-center gap-2 text-[#474D57] hover:text-[#FCD535] transition-all font-black text-[10px] uppercase tracking-[0.3em] group">
                   <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" /> {t.auth.cancel_auth}
                </button>
 
@@ -354,8 +371,9 @@ export default function AuthPage() {
           ) : (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                <div className="lg:hidden flex items-center gap-2 mb-12 justify-center" onClick={() => safeNavigate('/')}>
-                 <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg shadow-[#FCD535]/10">
-                   <TrendingUp className="text-black w-6 h-6" />
+                 <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg shadow-[#FCD535]/10 overflow-hidden">
+                    {/* GANTI ICON DENGAN LOGO GAMBAR (MOBILE) */}
+                   <img src="/proofofachievement.jpg" alt="TradeHub" className="w-full h-full object-cover" />
                  </div>
                  <span className="text-2xl font-black uppercase italic tracking-tighter">TradeHub</span>
                </div>
