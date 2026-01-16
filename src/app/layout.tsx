@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+// Import Provider Bahasa yang baru dibuat
+import { LanguageProvider } from "../lib/LanguageContext"; 
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -23,11 +25,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="id">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0B0E11] text-[#EAECEF]`}
       >
-        {children}
+        {/* Bungkus aplikasi dengan LanguageProvider agar fitur bahasa tersedia global */}
+        <LanguageProvider>
+          {children}
+        </LanguageProvider>
       </body>
     </html>
   );

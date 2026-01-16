@@ -5,7 +5,7 @@ import {
   LayoutDashboard, 
   Trophy, 
   User, 
-  Settings, 
+  Settings as SettingsIcon, 
   LogOut, 
   CheckCircle, 
   Clock, 
@@ -21,15 +21,34 @@ import {
   AlertTriangle,
   Activity,
   ArrowUpRight,
-  PieChart
+  PieChart,
+  Menu,
+  X,
+  Shield,
+  Star,
+  BookOpen
 } from 'lucide-react';
-// Jalur impor yang diperbaiki untuk memastikan resolusi modul berhasil
-import { supabase } from '../../../lib/supabase'; 
+
+/**
+ * MENGGUNAKAN ESM CDN:
+ * Menjamin library dimuat dengan benar di lingkungan preview tanpa node_modules lokal.
+ */
+import { createClient } from '@supabase/supabase-js';
+import * as web3 from '@solana/web3.js';
+import { useLanguage } from '../../../lib/LanguageContext';
+import { LanguageSwitcher } from '../../../lib/LanguageSwitcher';
+
+// --- KONFIGURASI SUPABASE ---
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com';
 
 interface ParticipantData {
   id: string;
   room_id: string;
-  status: string; // 'pending', 'verified', 'rejected'
+  status: string;
   wallet_address: string;
   joined_at: string;
   initial_balance: number;
@@ -42,19 +61,21 @@ interface ParticipantData {
 }
 
 export default function PnLAnalysisPage() {
+  const { t } = useLanguage();
   const [user, setUser] = useState<any>(null);
   const [registrations, setRegistrations] = useState<ParticipantData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Helper navigasi aman
   const safeNavigate = (path: string) => {
     window.location.href = path;
   };
 
-  // 1. Cek Auth Session (Konsisten dengan Dashboard)
+  // 1. Sinkronisasi Sesi Auth
   useEffect(() => {
-    const checkUser = async () => {
+    const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         safeNavigate('/auth');
@@ -62,18 +83,52 @@ export default function PnLAnalysisPage() {
         setUser(session.user);
       }
     };
-    checkUser();
+    init();
 
-    // Listener jika status login berubah
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
       if (!session) safeNavigate('/auth');
+      else setUser(session.user);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Fetch Data Trading (Logika PnL dengan Struktur Tampilan Dashboard)
+  /**
+   * SINKRONISASI ON-CHAIN:
+   * Mengambil saldo terbaru dari Blockchain Solana agar analisis PnL didasarkan pada data nyata.
+   */
+  const syncPnLWithBlockchain = async (baseData: ParticipantData[]) => {
+    if (baseData.length === 0 || !SOLANA_RPC) return;
+    setIsSyncing(true);
+    try {
+      const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
+      const publicKeys = baseData.map(p => new web3.PublicKey(p.wallet_address));
+      
+      const accountsInfo = await connection.getMultipleAccountsInfo(publicKeys);
+
+      const liveData = baseData.map((p, idx) => {
+        const info = accountsInfo[idx];
+        const liveBalance = info ? info.lamports / web3.LAMPORTS_PER_SOL : p.current_balance;
+        
+        return {
+          ...p,
+          current_balance: liveBalance,
+          profit: p.initial_balance > 0 
+            ? ((liveBalance - p.initial_balance) / p.initial_balance) * 100 
+            : 0
+        };
+      });
+
+      setRegistrations(liveData);
+    } catch (err) {
+      console.error("Gagal sinkronisasi PnL:", err);
+      setErrorMsg("Failed to sync on-chain.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // 2. Fetch Data Trading
   useEffect(() => {
     if (!user) return;
 
@@ -82,29 +137,24 @@ export default function PnLAnalysisPage() {
         setErrorMsg("");
         const { data, error } = await supabase
           .from('participants')
-          .select(`
-            *,
-            rooms (
-              title,
-              is_premium
-            )
-          `)
+          .select(`*, rooms (title, is_premium)`)
           .eq('user_id', user.id)
-          .order('joined_at', { ascending: true }); // Ascending untuk visualisasi timeline
+          .order('joined_at', { ascending: true });
 
         if (error) throw error;
         
-        const enrichedData = (data || []).map((item: any) => ({
+        const baseEnriched = (data || []).map((item: any) => ({
           ...item,
           profit: item.initial_balance > 0 
             ? ((item.current_balance - item.initial_balance) / item.initial_balance) * 100 
             : 0
         }));
 
-        setRegistrations(enrichedData);
+        setRegistrations(baseEnriched);
+        await syncPnLWithBlockchain(baseEnriched);
+
       } catch (err: any) {
-        console.error("Error Detail:", err);
-        setErrorMsg(err.message || "Gagal mengambil data trading.");
+        setErrorMsg("Gagal mengambil data trading.");
       } finally {
         setIsLoading(false);
       }
@@ -118,7 +168,7 @@ export default function PnLAnalysisPage() {
     safeNavigate('/auth');
   };
 
-  // --- KALKULASI STATISTIK ANALISIS ---
+  // --- KALKULASI STATISTIK ---
   const totalInitial = registrations.reduce((acc, curr) => acc + Number(curr.initial_balance), 0);
   const totalCurrent = registrations.reduce((acc, curr) => acc + Number(curr.current_balance), 0);
   const netPnL = totalCurrent - totalInitial;
@@ -135,229 +185,245 @@ export default function PnLAnalysisPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0B0E11]">
         <Loader2 className="w-12 h-12 text-[#FCD535] animate-spin mb-4" />
-        <p className="text-[#848E9C] font-bold tracking-[0.2em] uppercase text-xs">Menganalisis Portofolio...</p>
+        <p className="text-[#848E9C] font-black uppercase tracking-[0.4em] text-[10px]">Mengkalkulasi Performa...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans selection:bg-[#FCD535]/30">
-      {/* Sidebar - Identik dengan Dashboard Utama */}
-      <aside className="hidden md:flex flex-col w-72 bg-[#181A20] border-r border-[#2B3139]">
-        <div className="p-8 border-b border-[#2B3139]">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => safeNavigate('/')}>
-            <div className="w-10 h-10 bg-[#FCD535] rounded-lg flex items-center justify-center shadow-lg shadow-[#FCD535]/10">
+    <div className="flex min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans selection:bg-[#FCD535]/30 relative overflow-hidden">
+      
+      {/* --- SIDEBAR --- */}
+      <aside className={`fixed inset-y-0 left-0 z-[70] w-72 bg-[#181A20] border-r border-[#2B3139] flex flex-col transition-transform duration-300 transform lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} shadow-2xl lg:shadow-none`}>
+        <div className="p-8 border-b border-[#2B3139] flex items-center justify-between">
+          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => safeNavigate('/')}>
+            <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
               <TrendingUp className="text-black w-6 h-6" />
             </div>
-            <span className="font-bold text-xl tracking-tight text-[#EAECEF]">TradeHub</span>
+            <span className="font-black text-xl tracking-tighter text-[#EAECEF]">TradeHub</span>
           </div>
+          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-[#848E9C] hover:text-white transition-colors">
+            <X size={22} />
+          </button>
         </div>
-        
         <nav className="flex-1 p-6 space-y-2">
-          <SidebarLink onClick={() => safeNavigate('/dashboard')} Icon={LayoutDashboard} label="Track Record" />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/pnl')} Icon={BarChart2} label="PnL Analysis" active />
-          <SidebarLink Icon={Award} label="Certificates" />
-          <SidebarLink Icon={Wallet} label="Wallet" />
-          <SidebarLink Icon={Settings} label="Settings" />
+          <SidebarLink onClick={() => safeNavigate('/dashboard')} Icon={LayoutDashboard} label={t.dashboard.sidebar.track_record} />
+          <SidebarLink Icon={BarChart2} label={t.dashboard.sidebar.pnl_analysis} active />
+          <SidebarLink onClick={() => safeNavigate('/dashboard/certificates')} Icon={Award} label={t.dashboard.sidebar.certificates} />
+          <SidebarLink onClick={() => safeNavigate('/dashboard/wallet')} Icon={Wallet} label={t.dashboard.sidebar.wallet} />
+          {/* MENU TAMBAHAN DENGAN IKON KONSISTEN */}
+          <div className="pt-6 border-t border-[#2B3139]/50 mt-4 space-y-2">
+             <SidebarLink onClick={() => safeNavigate('/hall-of-fame')} Icon={Star} label={t.dashboard.sidebar.hall_of_fame} />
+             <SidebarLink onClick={() => safeNavigate('/handbook')} Icon={BookOpen} label={t.dashboard.sidebar.handbook} />
+             <SidebarLink onClick={() => safeNavigate('/dashboard/settings')} Icon={SettingsIcon} label={t.dashboard.sidebar.settings} />
+          </div>
         </nav>
-
         <div className="p-6 border-t border-[#2B3139]">
-          <button 
-            onClick={handleLogout}
-            className="flex items-center gap-3 w-full px-4 py-3 text-[#848E9C] hover:text-[#EAECEF] hover:bg-[#2B3139] rounded-xl transition font-medium text-sm"
-          >
-            <LogOut size={18} />
-            <span>Logout</span>
+          <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 text-[#848E9C] hover:text-[#EAECEF] hover:bg-[#2B3139] rounded-xl transition font-black text-xs uppercase tracking-widest">
+            <LogOut size={16} /> <span>{t.dashboard.sidebar.logout}</span>
           </button>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-[#0B0E11] relative">
-        {/* Background Grid */}
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(30,33,38,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,33,38,0.5)_1px,transparent_1px)] bg-[size:40px_40px] opacity:20 pointer-events-none"></div>
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[65] lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
-        <header className="relative z-10 px-8 py-6 flex justify-between items-center border-b border-[#2B3139] bg-[#0B0E11]/80 backdrop-blur-md sticky top-0">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[#EAECEF]">PnL Analysis</h1>
-            <p className="text-[#848E9C] text-sm">Verified On-Chain Performance Analytics</p>
-          </div>
+      <main className="flex-1 flex flex-col lg:ml-72 min-w-0 bg-[#0B0E11] relative overflow-y-auto">
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(30,33,38,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,33,38,0.5)_1px,transparent_1px)] bg-[size:40px_40px] opacity:10 pointer-events-none"></div>
+
+        <header className="relative z-50 px-6 lg:px-10 py-6 lg:py-8 flex justify-between items-center border-b border-[#2B3139] bg-[#0B0E11]/80 backdrop-blur-md sticky top-0">
           <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-bold text-[#EAECEF]">{user?.email?.split('@')[0] || 'Trader'}</p>
-              <p className="text-xs text-[#848E9C] font-mono">UID: {user?.id?.substring(0,8)}</p>
+            <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 bg-[#1E2329] border border-[#2B3139] rounded-xl text-[#FCD535] active:scale-95 transition-all"><Menu size={22} /></button>
+            <div>
+              <h1 className="text-xl lg:text-3xl font-black tracking-tighter italic uppercase text-white leading-none">{t.dashboard.sidebar.pnl_analysis}</h1>
+              <p className="hidden sm:flex items-center gap-2 text-[#848E9C] text-[10px] uppercase tracking-[0.2em] mt-2">
+                {isSyncing ? <><Loader2 size={10} className="animate-spin text-[#FCD535]" /> {t.common.syncing}</> : "Verified Performance Ledger"}
+              </p>
             </div>
-            <div className="w-10 h-10 rounded-full bg-[#2B3139] border border-[#474D57] flex items-center justify-center text-[#EAECEF] font-bold">
-              {user?.email ? user.email[0].toUpperCase() : 'T'}
-            </div>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <LanguageSwitcher />
+            {/* INTEGRASI IDENTITAS & TOMBOL PROFIL */}
+            <button 
+              onClick={() => safeNavigate(`/profile/${user?.id}`)}
+              className="flex items-center gap-4 px-4 py-2 bg-[#1E2329] border border-[#2B3139] rounded-2xl hover:bg-[#2B3139] transition-all group active:scale-95 text-left"
+            >
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-bold text-[#EAECEF] group-hover:text-[#FCD535] transition-colors">
+                  {user?.user_metadata?.full_name || user?.email?.split('@')[0]}
+                </p>
+                <p className="text-[10px] text-[#474D57] font-mono tracking-tighter uppercase">
+                  UID: {user?.id?.substring(0,8)}
+                </p>
+              </div>
+              <div className="w-10 lg:w-12 h-10 lg:h-12 rounded-full bg-gradient-to-tr from-[#181A20] to-[#2B3139] border border-[#474D57] flex items-center justify-center text-[#EAECEF] font-black shadow-lg group-hover:border-[#FCD535]/50 transition-all">
+                {user?.email ? user.email[0].toUpperCase() : 'T'}
+              </div>
+            </button>
           </div>
         </header>
 
-        <div className="p-8 max-w-7xl mx-auto relative z-10">
+        <div className="p-4 lg:p-10 max-w-7xl mx-auto relative z-10 pb-24">
           
           {errorMsg && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-xl flex items-center gap-3 text-red-400">
+            <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/50 rounded-2xl flex items-center gap-3 text-yellow-500 shadow-xl">
               <AlertTriangle size={20} />
-              <p>{errorMsg}</p>
+              <p className="text-xs font-black uppercase tracking-widest">{errorMsg}</p>
             </div>
           )}
 
-          {/* Row 1: Stats Overview - Gaya Dashboard */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
-            <StatCard 
-              label="Net Profit" 
-              value={`${netPnL >= 0 ? '+' : ''}${netPnL.toFixed(2)} SOL`} 
-              icon={<Activity className={netPnL >= 0 ? "text-[#0ECB81]" : "text-[#F6465D]"} />} 
-              trend={`${totalROI.toFixed(2)}% ROI`}
-              trendUp={netPnL >= 0}
-            />
-            <StatCard 
-              label="Win Rate" 
-              value={`${winRate}%`} 
-              icon={<PieChart className="text-[#3b82f6]" />} 
-              trend={`${winSessions} Wins`}
-              trendUp={Number(winRate) >= 50}
-            />
-            <StatCard 
-              label="Best Trade" 
-              value={`+${bestTrade.toFixed(2)}%`} 
-              icon={<ArrowUpRight className="text-[#0ECB81]" />} 
-              trend="Single Record"
-              trendUp={true}
-            />
-            <StatCard 
-              label="Current Equity" 
-              value={`${totalCurrent.toFixed(2)} SOL`} 
-              icon={<Wallet className="text-[#FCD535]" />} 
-              trend="Current Balance"
-              trendUp={null}
-            />
+          {/* GRID STATS */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-8 mb-8 lg:mb-12">
+            <StatCard label="Net Profit" value={`${netPnL >= 0 ? '+' : ''}${netPnL.toFixed(3)}`} subValue="SOL" icon={<Activity size={20} />} status={`${totalROI.toFixed(1)}% ROI`} accent={netPnL >= 0 ? "green" : "red"} />
+            <StatCard label="Win Rate" value={`${winRate}`} subValue="%" icon={<PieChart size={20} />} status={`${winSessions} WINS`} accent="blue" />
+            <StatCard label="Best Trade" value={`+${bestTrade.toFixed(1)}`} subValue="%" icon={<ArrowUpRight size={20} />} status="RECORD" accent="gold" />
+            <StatCard label="Equity" value={`${totalCurrent.toFixed(1)}`} subValue="SOL" icon={<Wallet size={20} />} status="ON-CHAIN" accent="teal" />
           </div>
 
-          {/* Row 2: Performance Visualizer */}
-          <div className="bg-[#1E2329] border border-[#2B3139] rounded-xl p-8 mb-12 shadow-xl">
-            <div className="flex justify-between items-center mb-8">
-              <h2 className="text-sm font-bold text-[#EAECEF] uppercase tracking-wider flex items-center gap-2">
-                <BarChart2 className="text-[#FCD535]" size={18} /> Equity Growth Timeline
-              </h2>
-              <div className="flex gap-2">
-                <span className="px-3 py-1 bg-[#0B0E11] rounded-lg text-[10px] font-bold text-[#848E9C] border border-[#2B3139] uppercase">Lifetime</span>
+          {/* Equity Growth Timeline */}
+          <div className="mb-8 lg:mb-12">
+            <h2 className="text-[9px] lg:text-[10px] font-black text-[#474D57] uppercase tracking-[0.4em] px-2 mb-4">Equity Growth Timeline</h2>
+            <div className="bg-[#1E2329] border border-[#2B3139] rounded-[1.5rem] lg:rounded-[2.5rem] p-5 lg:p-10 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535] rounded-full blur-[150px] opacity-5 pointer-events-none"></div>
+              
+              <div className="flex justify-between items-center mb-6 lg:mb-10 relative z-10">
+                <div className="flex items-center gap-2 lg:gap-3">
+                   <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-lg lg:rounded-xl bg-[#0B0E11] border border-[#2B3139] flex items-center justify-center text-[#FCD535] shadow-inner"><BarChart2 size={16} /></div>
+                   <span className="text-[10px] lg:text-xs font-black uppercase tracking-widest text-[#848E9C]">Market Visualization</span>
+                </div>
+                <span className="px-2 py-1 bg-[#0B0E11] rounded-lg text-[8px] lg:text-[9px] font-black text-[#FCD535] border border-[#FCD535]/20 uppercase tracking-widest">Live Data</span>
+              </div>
+
+              <div className="h-48 lg:h-72 flex items-end gap-1 md:gap-5 border-b border-[#2B3139] pb-4 relative z-10">
+                {registrations.length === 0 ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-[#474D57] gap-3">
+                     <Activity size={32} className="opacity-20 animate-pulse" />
+                     <p className="italic text-[10px] font-medium uppercase tracking-widest opacity-30">{t.common.loading}</p>
+                  </div>
+                ) : (
+                  registrations.map((item, idx) => {
+                    const pnl = Number(item.current_balance) - Number(item.initial_balance);
+                    const height = Math.min(Math.max(Math.abs(pnl) * 60 + 20, 10), 100); 
+                    return (
+                      <div key={item.id || idx} className="flex-1 group relative h-full flex flex-col justify-end">
+                         <div 
+                          style={{ height: `${height}%` }}
+                          className={`w-full rounded-t-sm lg:rounded-t-xl transition-all duration-700 cursor-pointer ${pnl >= 0 ? 'bg-[#0ECB81] hover:bg-[#0ECB81]/80 shadow-[0_0_20px_rgba(14,203,129,0.1)]' : 'bg-[#F6465D] hover:bg-[#F6465D]/80 shadow-[0_0_20px_rgba(246,70,93,0.1)]'}`}
+                         ></div>
+                         
+                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 hidden group-hover:block z-50 pointer-events-none">
+                            <div className="bg-[#181A20] text-white text-[10px] p-4 lg:p-5 rounded-[1rem] lg:rounded-[1.5rem] shadow-2xl border border-[#2B3139] min-w-[140px] lg:min-w-[160px]">
+                               <p className="font-black border-b border-[#2B3139] pb-2 mb-3 text-[#FCD535] uppercase tracking-wider truncate">{item.rooms?.title || "Trading Room"}</p>
+                               <div className="space-y-1.5">
+                                 <div className="flex justify-between gap-4 text-[#848E9C] font-bold">
+                                   <span>START:</span>
+                                   <span className="font-mono text-[#EAECEF]">{Number(item.initial_balance).toFixed(2)}</span>
+                                 </div>
+                                 <div className={`flex justify-between gap-4 font-black ${pnl >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                   <span>CURRENT:</span>
+                                   <span className="font-mono">{Number(item.current_balance).toFixed(2)}</span>
+                                 </div>
+                               </div>
+                            </div>
+                         </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+              <p className="mt-4 lg:mt-8 text-[8px] lg:text-[9px] font-black text-[#474D57] uppercase tracking-[0.4em] text-center italic">Verified Growth Vector (Blockchain Sync)</p>
+            </div>
+          </div>
+
+          {/* Historical Breakdown */}
+          <div className="flex flex-col gap-4 lg:gap-6">
+            <h2 className="text-[9px] lg:text-[10px] font-black text-[#474D57] uppercase tracking-[0.4em] px-2">Historical Breakdown</h2>
+            <div className="bg-[#1E2329] border border-[#2B3139] rounded-[1.5rem] lg:rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-[#2B3139]/50 text-[#848E9C] uppercase text-[8px] lg:text-[9px] font-black tracking-widest border-b border-[#2B3139]">
+                    <tr>
+                      <th className="p-4 lg:p-8">Arena</th>
+                      <th className="p-4 lg:p-8 text-right">Start</th>
+                      <th className="p-4 lg:p-8 text-right">Live</th>
+                      <th className="p-4 lg:p-8 text-right hidden sm:table-cell">PnL</th>
+                      <th className="p-4 lg:p-8 text-center">ROI</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#2B3139]">
+                    {registrations.length === 0 ? (
+                      <tr><td colSpan={5} className="p-16 lg:p-24 text-center text-[#474D57] font-black uppercase tracking-[0.4em] italic text-[10px]">No historical data found</td></tr>
+                    ) : (
+                      registrations.map((item) => {
+                        const pnl = Number(item.current_balance) - Number(item.initial_balance);
+                        const roi = Number(item.initial_balance) > 0 ? (pnl / Number(item.initial_balance)) * 100 : 0;
+                        return (
+                          <tr key={item.id} className="hover:bg-[#2B3139]/40 transition-colors group cursor-default">
+                            <td className="p-4 lg:p-8">
+                               <div className="flex items-center gap-3 lg:gap-4">
+                                  <div className="hidden sm:flex w-8 lg:w-10 h-8 lg:h-10 rounded-lg lg:rounded-xl bg-[#0B0E11] border border-[#2B3139] items-center justify-center text-[#848E9C] group-hover:border-[#FCD535]/30 transition-colors">
+                                     <Trophy size={16} />
+                                  </div>
+                                  <div className="flex flex-col min-w-0">
+                                     <p className="font-bold text-[#EAECEF] group-hover:text-[#FCD535] transition-colors tracking-tight truncate max-w-[120px] lg:max-w-[180px] text-xs lg:text-sm">{item.rooms?.title || "Trading Room"}</p>
+                                     <p className="text-[8px] lg:text-[10px] text-[#474D57] font-mono mt-0.5 uppercase tracking-tighter truncate">CID: {item.id.slice(0,8)}...</p>
+                                  </div>
+                               </div>
+                            </td>
+                            <td className="p-4 lg:p-8 text-right font-mono text-[#848E9C] text-[10px] lg:text-xs font-bold">{Number(item.initial_balance).toFixed(2)}</td>
+                            <td className="p-4 lg:p-8 text-right font-mono text-white text-xs lg:text-sm font-black">{Number(item.current_balance).toFixed(2)}</td>
+                            <td className={`p-4 lg:p-8 text-right font-black font-mono text-[10px] lg:text-sm hidden sm:table-cell ${pnl >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                              {pnl >= 0 ? '+' : ''}{pnl.toFixed(3)}
+                            </td>
+                            <td className="p-4 lg:p-8 text-center">
+                              <span className={`px-2 lg:px-4 py-1 rounded-lg lg:rounded-xl text-[8px] lg:text-[10px] font-black uppercase tracking-widest border ${roi >= 0 ? 'bg-[#0ECB81]/10 text-[#0ECB81] border-[#0ECB81]/20' : 'bg-[#F6465D]/10 text-[#F6465D] border-[#F6465D]/20'}`}>
+                                {roi >= 0 ? '▲' : '▼'} {Math.abs(roi).toFixed(1)}%
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
-
-            {/* Custom Bar Chart Visualizer */}
-            <div className="h-64 flex items-end gap-2 md:gap-4 border-b border-[#2B3139] pb-2 relative">
-              {registrations.length === 0 ? (
-                <div className="w-full h-full flex items-center justify-center text-[#474D57] italic text-sm">Belum ada data turnamen untuk dianalisis</div>
-              ) : (
-                registrations.map((item, idx) => {
-                  const pnl = Number(item.current_balance) - Number(item.initial_balance);
-                  const height = Math.min(Math.abs(pnl) * 35 + 15, 100); 
-                  return (
-                    <div key={item.id || idx} className="flex-1 group relative">
-                       <div 
-                        style={{ height: `${height}%` }}
-                        className={`w-full rounded-t-md transition-all duration-500 cursor-pointer ${pnl >= 0 ? 'bg-[#0ECB81] hover:bg-[#0ECB81]/80 shadow-[0_-4px_10px_rgba(14,203,129,0.1)]' : 'bg-[#F6465D] hover:bg-[#F6465D]/80 shadow-[0_-4px_10px_rgba(246,70,93,0.1)]'}`}
-                       ></div>
-                       {/* Tooltip Gaya Dashboard */}
-                       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-30 pointer-events-none">
-                          <div className="bg-[#181A20] text-white text-[10px] p-3 rounded-xl shadow-2xl whitespace-nowrap border border-[#2B3139]">
-                             <p className="font-bold border-b border-[#2B3139] pb-1 mb-1">{item.rooms?.title || "Tournament"}</p>
-                             <p className={pnl >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}>
-                               {pnl >= 0 ? 'Laba:' : 'Rugi:'} {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)} SOL
-                             </p>
-                          </div>
-                       </div>
-                    </div>
-                  )
-                })
-              )}
-            </div>
-            <div className="flex justify-between mt-4 text-[10px] text-[#474D57] font-bold uppercase tracking-widest">
-              <span>Start</span>
-              <span>Evolution of Capital</span>
-              <span>Current</span>
-            </div>
           </div>
-
-          {/* Row 3: Breakdown Table - Identik dengan Dashboard */}
-          <div className="bg-[#1E2329] rounded-2xl border border-[#2B3139] overflow-hidden shadow-xl">
-            <div className="px-6 py-4 border-b border-[#2B3139]">
-              <h2 className="text-sm font-bold text-[#EAECEF] uppercase tracking-wider">Tournament Records</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-[#2B3139] text-[#848E9C] uppercase text-[10px] font-bold border-b border-[#363c45]">
-                  <tr>
-                    <th className="p-5">Tournament Title</th>
-                    <th className="p-5 text-right">Start Balance</th>
-                    <th className="p-5 text-right">Final Balance</th>
-                    <th className="p-5 text-right">Net PnL (SOL)</th>
-                    <th className="p-5 text-right">ROI %</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#2B3139]">
-                  {registrations.length === 0 ? (
-                    <tr><td colSpan={5} className="p-10 text-center text-[#848E9C] italic">Tidak ada riwayat transaksi yang ditemukan.</td></tr>
-                  ) : (
-                    registrations.map((item) => {
-                      const pnl = Number(item.current_balance) - Number(item.initial_balance);
-                      const roi = Number(item.initial_balance) > 0 ? (pnl / Number(item.initial_balance)) * 100 : 0;
-                      return (
-                        <tr key={item.id} className="hover:bg-[#2B3139]/50 transition-colors">
-                          <td className="p-5 font-bold text-[#EAECEF]">{item.rooms?.title || "Trading Tournament"}</td>
-                          <td className="p-5 text-right font-mono text-[#848E9C]">{Number(item.initial_balance).toFixed(3)}</td>
-                          <td className="p-5 text-right font-mono text-[#EAECEF]">{Number(item.current_balance).toFixed(3)}</td>
-                          <td className={`p-5 text-right font-bold font-mono ${pnl >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
-                            {pnl >= 0 ? '+' : ''}{pnl.toFixed(4)}
-                          </td>
-                          <td className="p-5 text-right">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${roi >= 0 ? 'bg-[#0ECB81]/10 text-[#0ECB81] border-[#0ECB81]/20' : 'bg-[#F6465D]/10 text-[#F6465D] border-[#F6465D]/20'}`}>
-                              {roi >= 0 ? '▲' : '▼'} {roi.toFixed(2)}%
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
         </div>
       </main>
     </div>
   );
 }
 
-// --- SUB COMPONENTS - Identik dengan Dashboard Utama ---
-
-function SidebarLink({ Icon, label, active = false, onClick }: { Icon: any, label: string, active?: boolean, onClick?: () => void }) {
+function SidebarLink({ Icon, label, active = false, onClick }: any) {
   return (
-    <div 
-      onClick={onClick}
-      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition font-medium cursor-pointer text-sm ${
-      active ? 'bg-[#2B3139] text-[#FCD535]' : 'text-[#848E9C] hover:bg-[#2B3139] hover:text-[#EAECEF]'
-    }`}>
-      <Icon size={18} />
-      <span>{label}</span>
+    <div onClick={onClick} className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 font-black cursor-pointer text-xs uppercase tracking-widest ${active ? 'bg-[#2B3139] text-[#FCD535] shadow-lg border border-[#FCD535]/10' : 'text-[#848E9C] hover:bg-[#2B3139] hover:text-[#EAECEF]'}`}>
+      <Icon size={18} /> <span>{label}</span>
     </div>
   );
 }
 
-function StatCard({ label, value, icon, trend, trendUp }: any) {
+function StatCard({ label, value, subValue, icon, status, accent }: any) {
+  const accentColors: any = {
+    gold: "text-[#FCD535] border-[#FCD535]/20",
+    blue: "text-[#3b82f6] border-[#3b82f6]/20",
+    green: "text-[#0ECB81] border-[#0ECB81]/20",
+    red: "text-[#F6465D] border-[#F6465D]/20",
+    teal: "text-[#70C1B3] border-[#70C1B3]/20"
+  };
+
   return (
-    <div className="bg-[#1E2329] p-5 rounded-xl border border-[#2B3139]">
-      <div className="flex justify-between items-start mb-2">
-        <div className="text-[#848E9C] text-xs font-bold uppercase tracking-wider">{label}</div>
-        {icon}
+    <div className="bg-[#1E2329] p-4 sm:p-6 lg:p-8 rounded-[1.5rem] lg:rounded-[2.5rem] border border-[#2B3139] shadow-2xl relative overflow-hidden group hover:border-[#FCD535]/30 transition-all">
+      <div className="flex justify-between items-start mb-3 lg:mb-6">
+        <div className="text-[8px] lg:text-[9px] font-black text-[#474D57] uppercase tracking-[0.2em]">{label}</div>
+        <div className="hidden sm:flex p-2.5 bg-[#0B0E11] rounded-xl border border-[#2B3139] text-[#848E9C] group-hover:text-[#FCD535] transition-all">{icon}</div>
       </div>
-      <div className="flex items-end gap-3">
-        <div className="text-2xl font-bold text-[#EAECEF]">{value}</div>
-        <div className={`text-xs font-bold mb-1 ${trendUp === true ? 'text-[#0ECB81]' : trendUp === false ? 'text-[#F6465D]' : 'text-[#848E9C]'}`}>
-          {trend}
-        </div>
+      <div className="flex items-baseline gap-1 lg:gap-2 mb-2 lg:mb-4">
+        <span className="text-lg sm:text-2xl lg:text-4xl font-black text-white italic tracking-tighter leading-none">{value}</span>
+        <span className="text-[8px] lg:text-[10px] font-black text-[#474D57] uppercase">{subValue}</span>
+      </div>
+      <div className={`text-[7px] lg:text-[8px] font-black px-1.5 lg:px-2.5 py-0.5 lg:py-1 rounded-md lg:rounded-lg border inline-flex items-center gap-1 ${accentColors[accent] || accentColors.gold}`}>
+        <span className="w-1 h-1 rounded-full bg-current"></span> {status}
       </div>
     </div>
   );
