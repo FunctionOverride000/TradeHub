@@ -76,4 +76,8 @@ Klaim Kemenangan: Pemenang mendapatkan reputasi dan hadiah pool di akhir periode
 
 Menciptakan lingkungan trading yang jujur, transparan, dan kompetitif. Di TradeHub, uang tidak bisa membeli kemenangan—hanya skill yang menentukan posisi Anda di puncak.
 
+<<<<<<< HEAD
 "Don't trust, verify. Welcome to the future of trading competitions."
+=======
+"Don't trust, verify. Welcome to the future of trading competitions."
+>>>>>>> 41f9a3a7cc7f858676ace67f73c3713693066d6f
