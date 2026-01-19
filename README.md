@@ -81,3 +81,5 @@ Menciptakan lingkungan trading yang jujur, transparan, dan kompetitif. Di TradeH
 =======
 "Don't trust, verify. Welcome to the future of trading competitions."
 >>>>>>> 41f9a3a7cc7f858676ace67f73c3713693066d6f
+
+jasno
