@@ -22,14 +22,18 @@ import {
   Coins, 
   Lock, 
   Key,   
-  Ticket 
+  Ticket,
+  ExternalLink,
+  Hourglass
 } from 'lucide-react';
 
+// Pastikan library ini sudah diinstall: npm install @supabase/supabase-js @solana/web3.js
 import { createClient } from '@supabase/supabase-js';
 import * as web3 from '@solana/web3.js';
 
-// --- IMPORT HOOK BAHASA (Dibiarkan sesuai kode asli) ---
-import { useLanguage } from '../../../lib/LanguageContext';
+// Menggunakan alias @/lib agar path lebih aman dan tidak error saat folder dipindah
+// Jika error berlanjut, pastikan file LanguageContext.tsx ada di folder src/lib
+import { useLanguage } from '@/lib/LanguageContext';
 
 // --- KONFIGURASI SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
@@ -67,6 +71,12 @@ interface Room {
   room_password?: string;
   whitelist?: string[];
   entry_fee?: number; // Harga Tiket Masuk
+  // --- KOLOM BARU UNTUK REWARD OTOMATIS ---
+  reward_token_amount?: number;
+  reward_token_symbol?: string;
+  distribution_status?: string; // 'pending', 'processing', 'distributed', 'failed'
+  distribution_tx_hash?: string;
+  winners_info?: any[]; // JSON info pemenang
 }
 
 interface Participant {
@@ -80,7 +90,7 @@ interface Participant {
 }
 
 export default function ArenaDetailPage() {
-  const { t } = useLanguage(); // (Opsional, sesuai kode asli)
+  const { t } = useLanguage(); 
   const [arenaId, setArenaId] = useState<string>("");
   const [room, setRoom] = useState<Room | null>(null);
   const [walletInput, setWalletInput] = useState('');
@@ -154,6 +164,15 @@ export default function ArenaDetailPage() {
       }, () => {
         refreshLeaderboard();
       })
+      // Listen juga ke perubahan status room (untuk update status reward)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'rooms',
+        filter: `id=eq.${arenaId}`
+      }, (payload) => {
+        setRoom(payload.new as Room);
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -218,7 +237,6 @@ export default function ArenaDetailPage() {
     }
   };
 
-  // --- LOGIKA SPLIT PAYMENT (10% DEV, 90% KREATOR) ---
   const processTicketPayment = async (fee: number): Promise<boolean> => {
     try {
       const provider = (window as any).solana;
@@ -238,7 +256,6 @@ export default function ArenaDetailPage() {
 
       const transaction = new web3.Transaction();
 
-      // 1. Transfer Tax ke Dev
       transaction.add(
         web3.SystemProgram.transfer({
           fromPubkey: senderPublicKey,
@@ -247,7 +264,6 @@ export default function ArenaDetailPage() {
         })
       );
 
-      // 2. Transfer Revenue ke Kreator
       if (room?.creator_wallet) {
           transaction.add(
             web3.SystemProgram.transfer({
@@ -257,7 +273,6 @@ export default function ArenaDetailPage() {
             })
           );
       } else {
-          // Fallback ke Dev jika wallet creator error (Safety)
           transaction.add(
             web3.SystemProgram.transfer({
               fromPubkey: senderPublicKey,
@@ -296,10 +311,9 @@ export default function ArenaDetailPage() {
       return alert("Alamat dompet Solana tidak valid!");
     }
 
-    // --- 1. VALIDASI PREMIUM (Private & Whitelist) ---
     if (room?.access_type === 'private') {
        if (passwordInput !== room.room_password) {
-          return alert("⛔ Password Ruangan Salah!");
+         return alert("⛔ Password Ruangan Salah!");
        }
     }
 
@@ -307,7 +321,7 @@ export default function ArenaDetailPage() {
        const allowedWallets = room.whitelist || [];
        const isAllowed = allowedWallets.some(w => w.trim().toLowerCase() === walletInput.trim().toLowerCase());
        if (!isAllowed) {
-          return alert("⛔ Akses Ditolak. Wallet ini tidak ada di Whitelist.");
+         return alert("⛔ Akses Ditolak. Wallet ini tidak ada di Whitelist.");
        }
     }
     
@@ -319,13 +333,12 @@ export default function ArenaDetailPage() {
         throw new Error(`Saldo Anda (${currentBalance.toFixed(2)} SOL) kurang dari syarat minimum arena ini (${room.min_balance} SOL).`);
       }
 
-      // --- 2. EKSEKUSI PEMBAYARAN TIKET (JIKA ADA) ---
       if (room?.entry_fee && room.entry_fee > 0) {
           const paid = await processTicketPayment(room.entry_fee);
           if (!paid) {
              setIsJoining(false);
              setStatusMsg("");
-             return; // Stop jika batal bayar
+             return; 
           }
       }
 
@@ -357,6 +370,80 @@ export default function ArenaDetailPage() {
     }
   };
 
+  // --- RENDER COMPONENT HELPERS ---
+  
+  const isEnded = room ? new Date(room.end_time) < new Date() : false;
+
+  const renderRewardStatus = () => {
+    if (!isEnded || !room?.distribution_status) return null;
+
+    if (room.distribution_status === 'distributed') {
+      return (
+        <div className="mb-8 p-6 bg-gradient-to-r from-[#0ECB81]/10 to-[#0ECB81]/20 border border-[#0ECB81] rounded-3xl animate-in fade-in zoom-in duration-500">
+           <div className="flex items-start gap-4">
+              <div className="bg-[#0ECB81] p-3 rounded-full text-black shadow-lg shadow-[#0ECB81]/20">
+                 <CheckCircle size={24} />
+              </div>
+              <div className="flex-1">
+                 <h3 className="text-xl font-black uppercase text-[#0ECB81] mb-2 tracking-tight">Hadiah Telah Cair!</h3>
+                 <p className="text-xs text-[#848E9C] mb-4">
+                    Sistem otomatis telah mengirimkan reward ke dompet pemenang secara on-chain.
+                 </p>
+                 {room.distribution_tx_hash && (
+                   <a 
+                     href={`https://solscan.io/tx/${room.distribution_tx_hash}`} 
+                     target="_blank" 
+                     rel="noreferrer"
+                     className="inline-flex items-center gap-2 bg-[#0ECB81] text-black px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#0be08d] transition-colors"
+                   >
+                      <ExternalLink size={14} /> Lihat Bukti Transaksi
+                   </a>
+                 )}
+              </div>
+           </div>
+        </div>
+      );
+    }
+
+    if (room.distribution_status === 'processing' || room.distribution_status === 'pending') {
+      return (
+        <div className="mb-8 p-6 bg-gradient-to-r from-[#FCD535]/10 to-[#FCD535]/20 border border-[#FCD535] rounded-3xl animate-pulse">
+           <div className="flex items-center gap-4">
+              <div className="bg-[#FCD535] p-3 rounded-full text-black">
+                 <Loader2 size={24} className="animate-spin" />
+              </div>
+              <div>
+                 <h3 className="text-lg font-black uppercase text-[#FCD535] mb-1 tracking-tight">Memproses Hadiah...</h3>
+                 <p className="text-xs text-[#848E9C]">
+                    Sistem sedang memverifikasi pemenang dan mengirimkan SOL secara otomatis. Harap tunggu.
+                 </p>
+              </div>
+           </div>
+        </div>
+      );
+    }
+    
+    if (room.distribution_status.includes('failed')) {
+       return (
+        <div className="mb-8 p-6 bg-gradient-to-r from-[#F6465D]/10 to-[#F6465D]/20 border border-[#F6465D] rounded-3xl">
+           <div className="flex items-center gap-4">
+              <div className="bg-[#F6465D] p-3 rounded-full text-white">
+                 <AlertCircle size={24} />
+              </div>
+              <div>
+                 <h3 className="text-lg font-black uppercase text-[#F6465D] mb-1 tracking-tight">Distribusi Tertunda</h3>
+                 <p className="text-xs text-[#848E9C]">
+                    Terjadi kendala teknis. Admin akan memproses manual secepatnya.
+                 </p>
+              </div>
+           </div>
+        </div>
+       )
+    }
+
+    return null;
+  };
+
   if (isPageLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#0B0E11]">
@@ -379,7 +466,7 @@ export default function ArenaDetailPage() {
         <div className="w-20 h-20 bg-[#F6465D]/10 rounded-3xl flex items-center justify-center mb-6 border border-[#F6465D]/20">
           <AlertCircle className="w-10 h-10 text-[#F6465D]" />
         </div>
-        <h1 className="text-3xl font-black mb-2 uppercase tracking-tight">Arena Kadaluarsa</h1>
+        <h1 className="text-3xl font-black mb-2 uppercase tracking-tight">Arena Tidak Ditemukan</h1>
         <button onClick={() => safeNavigate('/')} className="px-10 py-4 bg-[#2B3139] rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#363c45] transition-all">Kembali ke Lobby Utama</button>
       </div>
     );
@@ -432,23 +519,37 @@ export default function ArenaDetailPage() {
                     </span>
                  )}
 
-                 <div className="flex items-center gap-2 text-[#0ECB81] text-[10px] font-black uppercase tracking-widest bg-[#0ECB81]/10 px-3 py-1.5 rounded-xl border border-[#0ECB81]/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#0ECB81] animate-pulse"></span> Arena Live
-                 </div>
+                 {isEnded ? (
+                    <div className="flex items-center gap-2 text-[#848E9C] text-[10px] font-black uppercase tracking-widest bg-[#2B3139] px-3 py-1.5 rounded-xl border border-[#474D57]">
+                       Selesai
+                    </div>
+                 ) : (
+                    <div className="flex items-center gap-2 text-[#0ECB81] text-[10px] font-black uppercase tracking-widest bg-[#0ECB81]/10 px-3 py-1.5 rounded-xl border border-[#0ECB81]/20">
+                       <span className="w-1.5 h-1.5 rounded-full bg-[#0ECB81] animate-pulse"></span> Arena Live
+                    </div>
+                 )}
                </div>
 
                <h1 className="text-4xl font-black leading-[1.1] mb-8 text-white tracking-tighter uppercase italic">{room.title}</h1>
                
                {/* BANNER HADIAH UTAMA */}
+               {/* Update: Tampilkan Reward Otomatis jika ada, fallback ke teks manual */}
                <div className="mb-8 p-6 bg-gradient-to-br from-[#FCD535] to-[#F0B90B] rounded-3xl shadow-xl shadow-[#FCD535]/10 flex items-center gap-6 group transform hover:scale-[1.02] transition-all">
                   <div className="w-14 h-14 bg-black/20 rounded-2xl flex items-center justify-center text-black group-hover:rotate-12 transition-transform">
                     <Gift size={28} />
                   </div>
                   <div>
                     <p className="text-[10px] font-black text-black/60 uppercase tracking-widest leading-none mb-1">Hadiah Utama</p>
-                    <p className="text-2xl font-black text-black uppercase italic tracking-tighter">{room.reward || "TBA"}</p>
+                    <p className="text-2xl font-black text-black uppercase italic tracking-tighter">
+                       {room.reward_token_amount && room.reward_token_amount > 0 
+                          ? `${room.reward_token_amount} ${room.reward_token_symbol || 'SOL'}` 
+                          : room.reward || "TBA"}
+                    </p>
                   </div>
                </div>
+               
+               {/* STATUS DISTRIBUSI HADIAH (HANYA MUNCUL SETELAH SELESAI) */}
+               {renderRewardStatus()}
 
                {/* BLOK DESKRIPSI ARENA */}
                <div className="mb-10 bg-[#0B0E11] p-6 rounded-[1.5rem] border border-[#2B3139]">
@@ -474,57 +575,67 @@ export default function ArenaDetailPage() {
                </div>
             </div>
 
-            {/* Kotak Registrasi */}
-            <div className="bg-[#1E2329] rounded-[2.5rem] border border-[#FCD535]/20 p-10 shadow-2xl relative overflow-hidden group">
-               <div className="flex items-center gap-4 mb-4">
-                  <div className="w-12 h-12 bg-[#FCD535] rounded-2xl flex items-center justify-center text-black shadow-lg shadow-[#FCD535]/10">
-                    <Zap size={24} fill="currentColor" />
-                  </div>
-                  <h2 className="text-xl font-black text-white uppercase italic tracking-tight">Ikuti Turnamen</h2>
-               </div>
-               <p className="text-xs text-[#848E9C] font-medium mb-10 leading-relaxed">
-                 Pastikan saldo dompet Anda minimal <span className="text-[#FCD535] font-bold">{room.min_balance || 0} SOL</span> untuk dapat mendaftar.
-               </p>
-               <div className="space-y-5 relative z-10">
-                 
-                 {/* INPUT WALLET */}
-                 <div className="space-y-2">
-                   <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">Solana Wallet Address</label>
-                   <input 
-                     type="text" 
-                     placeholder="Masukkan alamat dompet Anda..."
-                     className="w-full px-6 py-5 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#EAECEF] text-sm font-mono focus:border-[#FCD535] outline-none transition-all"
-                     value={walletInput}
-                     onChange={(e) => setWalletInput(e.target.value)}
-                   />
-                 </div>
-
-                 {/* --- INPUT PASSWORD (KHUSUS PRIVATE ROOM) --- */}
-                 {room.access_type === 'private' && (
-                    <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                       <label className="text-[10px] font-black text-[#F6465D] uppercase tracking-widest ml-1 flex items-center gap-1"><Key size={10}/> Password Ruangan</label>
-                       <input 
-                         type="password" 
-                         placeholder="Masukkan kode rahasia..."
-                         className="w-full px-6 py-5 bg-[#0B0E11] border border-[#F6465D]/30 rounded-2xl text-[#EAECEF] text-sm font-bold focus:border-[#F6465D] outline-none transition-all"
-                         value={passwordInput}
-                         onChange={(e) => setPasswordInput(e.target.value)}
-                       />
+            {/* Kotak Registrasi (Sembunyikan jika sudah selesai) */}
+            {!isEnded ? (
+              <div className="bg-[#1E2329] rounded-[2.5rem] border border-[#FCD535]/20 p-10 shadow-2xl relative overflow-hidden group">
+                 <div className="flex items-center gap-4 mb-4">
+                    <div className="w-12 h-12 bg-[#FCD535] rounded-2xl flex items-center justify-center text-black shadow-lg shadow-[#FCD535]/10">
+                      <Zap size={24} fill="currentColor" />
                     </div>
-                 )}
+                    <h2 className="text-xl font-black text-white uppercase italic tracking-tight">Ikuti Turnamen</h2>
+                 </div>
+                 <p className="text-xs text-[#848E9C] font-medium mb-10 leading-relaxed">
+                   Pastikan saldo dompet Anda minimal <span className="text-[#FCD535] font-bold">{room.min_balance || 0} SOL</span> untuk dapat mendaftar.
+                 </p>
+                 <div className="space-y-5 relative z-10">
+                   
+                   {/* INPUT WALLET */}
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">Solana Wallet Address</label>
+                     <input 
+                       type="text" 
+                       placeholder="Masukkan alamat dompet Anda..."
+                       className="w-full px-6 py-5 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#EAECEF] text-sm font-mono focus:border-[#FCD535] outline-none transition-all"
+                       value={walletInput}
+                       onChange={(e) => setWalletInput(e.target.value)}
+                     />
+                   </div>
 
-                 <button 
-                   onClick={handleJoinArena}
-                   disabled={isJoining}
-                   className="w-full bg-[#FCD535] text-black font-black py-5 rounded-2xl hover:bg-[#F0B90B] disabled:opacity-50 transition-all flex items-center justify-center gap-3 shadow-xl shadow-[#FCD535]/10 active:scale-95 uppercase text-xs tracking-widest"
-                 >
-                   {isJoining 
-                      ? (statusMsg || <Loader2 className="animate-spin" size={20} />) 
-                      : (room.entry_fee && room.entry_fee > 0 ? `Bayar ${room.entry_fee} SOL & Join` : 'Konfirmasi & Ikut Lomba')
-                   }
-                 </button>
+                   {/* --- INPUT PASSWORD (KHUSUS PRIVATE ROOM) --- */}
+                   {room.access_type === 'private' && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                         <label className="text-[10px] font-black text-[#F6465D] uppercase tracking-widest ml-1 flex items-center gap-1"><Key size={10}/> Password Ruangan</label>
+                         <input 
+                           type="password" 
+                           placeholder="Masukkan kode rahasia..."
+                           className="w-full px-6 py-5 bg-[#0B0E11] border border-[#F6465D]/30 rounded-2xl text-[#EAECEF] text-sm font-bold focus:border-[#F6465D] outline-none transition-all"
+                           value={passwordInput}
+                           onChange={(e) => setPasswordInput(e.target.value)}
+                         />
+                      </div>
+                   )}
+
+                   <button 
+                     onClick={handleJoinArena}
+                     disabled={isJoining}
+                     className="w-full bg-[#FCD535] text-black font-black py-5 rounded-2xl hover:bg-[#F0B90B] disabled:opacity-50 transition-all flex items-center justify-center gap-3 shadow-xl shadow-[#FCD535]/10 active:scale-95 uppercase text-xs tracking-widest"
+                   >
+                     {isJoining 
+                       ? (statusMsg || <Loader2 className="animate-spin" size={20} />) 
+                       : (room.entry_fee && room.entry_fee > 0 ? `Bayar ${room.entry_fee} SOL & Join` : 'Konfirmasi & Ikut Lomba')
+                     }
+                   </button>
+                 </div>
+              </div>
+            ) : (
+               <div className="bg-[#1E2329] rounded-[2.5rem] border border-[#2B3139] p-10 text-center opacity-70">
+                  <div className="w-12 h-12 bg-[#2B3139] rounded-2xl flex items-center justify-center text-[#848E9C] mx-auto mb-4">
+                     <Hourglass size={24} />
+                  </div>
+                  <h3 className="text-lg font-black uppercase text-[#848E9C]">Kompetisi Berakhir</h3>
+                  <p className="text-xs text-[#474D57] mt-2">Pendaftaran sudah ditutup.</p>
                </div>
-            </div>
+            )}
           </div>
 
           {/* Kolom Kanan: Papan Skor Real-Time */}
@@ -578,8 +689,11 @@ export default function ArenaDetailPage() {
                     ) : (
                       participants.map((p, index) => {
                         const isTop3 = index < 3;
+                        // Cek apakah user ini adalah salah satu pemenang yang sudah terdata di database (jika sudah distribusikan)
+                        const winnerData = room?.winners_info?.find((w: any) => w.wallet === p.wallet_address);
+
                         return (
-                          <tr key={p.id} className="hover:bg-[#2B3139]/60 transition-all group cursor-default">
+                          <tr key={p.id} className={`hover:bg-[#2B3139]/60 transition-all group cursor-default ${winnerData ? 'bg-[#0ECB81]/5' : ''}`}>
                             <td className="p-8 font-black">
                               <div className="flex items-center gap-4">
                                 {isTop3 ? (
@@ -598,7 +712,11 @@ export default function ArenaDetailPage() {
                                    <span className="font-mono text-sm text-[#EAECEF] group-hover:text-[#FCD535] transition-colors font-bold tracking-tight">
                                      {p.wallet_address.slice(0, 10)}...{p.wallet_address.slice(-10)}
                                    </span>
-                                   <span className="text-[9px] font-black text-[#474D57] uppercase tracking-widest mt-1 italic">On-Chain Verified</span>
+                                   <span className="text-[9px] font-black text-[#474D57] uppercase tracking-widest mt-1 italic flex items-center gap-1">
+                                      {winnerData ? (
+                                         <span className="text-[#0ECB81] flex items-center gap-1"><CheckCircle size={10}/> Reward: {winnerData.amount.toFixed(2)} SOL</span>
+                                      ) : 'On-Chain Verified'}
+                                   </span>
                                  </div>
                                </div>
                             </td>
