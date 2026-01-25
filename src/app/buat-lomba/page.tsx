@@ -4,26 +4,23 @@ import React, { useState, useEffect } from 'react';
 import { 
   Trophy, 
   ArrowLeft, 
-  Loader2, 
   CreditCard, 
-  CheckCircle2,
   AlertCircle,
   Coins,
   Globe,
   Lock,
   Users,
   Shield,
-  Ticket // Menambahkan icon Ticket
+  Ticket,
+  Gift 
 } from 'lucide-react';
 
-/**
- * MENGGUNAKAN ESM CDN:
- * Menjamin library dimuat dengan stabil di lingkungan preview tanpa node_modules lokal.
- */
 import { createClient } from '@supabase/supabase-js';
 import * as web3 from '@solana/web3.js';
-import { useLanguage } from '../../lib/LanguageContext';
-import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
+import { useLanguage } from '@/lib/LanguageContext';
+import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
+// Pastikan path ini sesuai dengan tempat Anda menyimpan StatusOverlay
+import StatusOverlay from '@/components/ui/StatusOverlay'; 
 
 // --- KONFIGURASI SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
@@ -31,11 +28,11 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOi
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // --- KONFIGURASI BIAYA (REAL) ---
-const CREATION_FEE_SOL = 0.1;
+const CREATION_FEE_SOL = 0.1; 
 const PRIVATE_FEE_SOL = 0.1;
 const WHITELIST_FEE_SOL = 0.2; 
 
-// Wallet Treasury (Tempat uang masuk)
+// Ganti dengan Wallet Treasury Asli Anda
 const PLATFORM_TREASURY = "DLmtgDL1viNJUBzZvd91cLVkdKz4YkivCSpNKNKe6oLg"; 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com'; 
 
@@ -45,44 +42,56 @@ export default function CreateArenaPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   
-  // State untuk Fitur Premium
+  // State Fitur Premium
   const [accessType, setAccessType] = useState<'public' | 'private' | 'whitelist'>('public');
   const [roomPassword, setRoomPassword] = useState('');
   const [whitelistInput, setWhitelistInput] = useState('');
 
+  // State Form Utama
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     start_date: '',
     end_date: '',
-    reward: '',
+    reward: '', // Input string (misal: "10")
     min_balance: '0',
-    entry_fee: '0' // [BARU] Field Entry Fee (Harga Tiket)
+    entry_fee: '0' 
   });
 
   const safeNavigate = (path: string) => {
     window.location.href = path;
   };
 
+  // Cek Auth Session
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) safeNavigate('/auth');
       else setUser(session.user);
-    });
+    };
+    initAuth();
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // Kalkulasi Total Biaya secara Real-time (Biaya Pembuatan, BUKAN Biaya Tiket)
+  // Hitung Angka Reward untuk Deposit
+  const rewardNumeric = parseFloat(formData.reward) || 0;
+  
+  // Kalkulasi Total Biaya (Fee Pembuatan + Biaya Premium + Deposit Reward)
   const totalCost = React.useMemo(() => {
-    if (accessType === 'private') return CREATION_FEE_SOL + PRIVATE_FEE_SOL;
-    if (accessType === 'whitelist') return CREATION_FEE_SOL + WHITELIST_FEE_SOL;
-    return CREATION_FEE_SOL;
-  }, [accessType]);
+    let cost = CREATION_FEE_SOL;
+    if (accessType === 'private') cost += PRIVATE_FEE_SOL;
+    if (accessType === 'whitelist') cost += WHITELIST_FEE_SOL;
+    
+    const rewardDeposit = parseFloat(formData.reward) || 0;
+    cost += rewardDeposit;
+    
+    return cost;
+  }, [accessType, formData.reward]);
 
-  // Fungsi Cek Status Transaksi On-Chain
+  // Helper: Cek status transaksi di blockchain sampai confirmed
   const pollSignatureStatus = async (connection: web3.Connection, signature: string): Promise<boolean> => {
     let count = 0;
     while (count < 30) {
@@ -96,27 +105,55 @@ export default function CreateArenaPage() {
     throw new Error("Waktu konfirmasi habis.");
   };
 
-  // Fungsi Eksekusi Pembayaran Real (Untuk Biaya Pembuatan ke Dev)
+  // Helper: Deteksi Phantom Wallet dengan aman
+  const getProvider = () => {
+    if (typeof window === 'undefined') return null;
+    
+    // 1. Coba ambil dari namespace khusus Phantom (Anti-konflik dengan wallet lain)
+    const phantom = (window as any).phantom?.solana;
+    if (phantom?.isPhantom) return phantom;
+
+    // 2. Fallback ke window.solana biasa
+    const solana = (window as any).solana;
+    if (solana?.isPhantom) return solana;
+
+    return null;
+  };
+
+  // Logika Pembayaran Solana
   const executeRealPayment = async (amount: number): Promise<{ signature: string, wallet: string } | null> => {
-    const provider = (window as any).solana;
-    if (!provider?.isPhantom) {
+    const provider = getProvider();
+    
+    if (!provider) {
       setStatus('error');
-      setErrorMsg(t?.admin?.phantom_not_found || "Phantom Wallet not found");
+      setErrorMsg("Phantom Wallet tidak terdeteksi! Mohon install Phantom.");
+      window.open('https://phantom.app/', '_blank');
       return null;
     }
 
     try {
       setStatus('paying');
       setErrorMsg(null);
+      
+      // Request koneksi ke wallet
       const resp = await provider.connect();
       const senderPublicKey = resp.publicKey;
       const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
 
+      // Validasi Saldo
+      const balance = await connection.getBalance(senderPublicKey);
+      const costInLamports = Math.round(amount * web3.LAMPORTS_PER_SOL);
+      
+      if (balance < costInLamports) {
+         throw new Error(`Saldo tidak cukup! Butuh ${amount.toFixed(4)} SOL + Gas.`);
+      }
+
+      // Buat Transaksi Transfer ke Treasury
       const transaction = new web3.Transaction().add(
         web3.SystemProgram.transfer({
           fromPubkey: senderPublicKey,
           toPubkey: new web3.PublicKey(PLATFORM_TREASURY),
-          lamports: Math.round(amount * web3.LAMPORTS_PER_SOL),
+          lamports: costInLamports,
         })
       );
 
@@ -124,13 +161,22 @@ export default function CreateArenaPage() {
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = senderPublicKey;
 
+      // Sign & Send
       const { signature } = await provider.signAndSendTransaction(transaction);
       setStatus('confirming');
       await pollSignatureStatus(connection, signature);
+      
       return { signature, wallet: senderPublicKey.toString() };
+
     } catch (err: any) {
+      console.error("Payment Error:", err);
       setStatus('error');
-      setErrorMsg(err.message || "Transaksi gagal.");
+      
+      if (err.message && (err.message.includes("disconnected port") || err.message.includes("connection not established"))) {
+         setErrorMsg("Koneksi Wallet Terputus. Mohon Refresh Halaman (F5) atau Restart Browser.");
+      } else {
+         setErrorMsg(err.message || "Transaksi dibatalkan atau gagal.");
+      }
       return null;
     }
   };
@@ -139,38 +185,33 @@ export default function CreateArenaPage() {
     e.preventDefault();
     if (!user) return;
 
+    // Validasi Form
     if (formData.description.length < 20) {
       setStatus('error');
       setErrorMsg("Description must be at least 20 characters.");
       return;
     }
 
-    // Validasi Input Premium
-    if (accessType === 'private' && roomPassword.length < 4) {
-      setStatus('error');
-      setErrorMsg("Room password must be at least 4 characters.");
-      return;
+    const rewardVal = parseFloat(formData.reward);
+    if (isNaN(rewardVal) || rewardVal < 0) {
+       setStatus('error');
+       setErrorMsg("Please enter a valid reward amount (e.g. 0.5)");
+       return;
     }
 
-    if (accessType === 'whitelist' && whitelistInput.length < 32) {
-      setStatus('error');
-      setErrorMsg("Please enter at least one wallet address for whitelist.");
-      return;
-    }
-    
     try {
-      // 1. Lakukan Pembayaran Modal Awal (Creation Fee)
+      // 1. Eksekusi Pembayaran
       const paymentResult = await executeRealPayment(totalCost);
-      if (!paymentResult) return;
+      if (!paymentResult) return; // Stop jika pembayaran gagal
 
       setStatus('saving');
 
-      // 2. Format Data Whitelist
+      // 2. Format Data Whitelist (jika ada)
       const whitelistArray = accessType === 'whitelist' 
         ? whitelistInput.split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 0)
         : null;
 
-      // 3. Simpan ke Database Supabase
+      // 3. Simpan ke Database
       const { error } = await supabase.from('rooms').insert([
         { 
           title: formData.title,
@@ -179,22 +220,25 @@ export default function CreateArenaPage() {
           creator_wallet: paymentResult.wallet,
           start_time: new Date(formData.start_date).toISOString(),
           end_time: new Date(formData.end_date).toISOString(),
-          reward: formData.reward,
-          min_balance: parseFloat(formData.min_balance),
           
-          // [BARU] Menyimpan Harga Tiket
+          reward: `${rewardVal} SOL`, // Simpan string untuk display di UI
+          
+          // Data Penting untuk Robot Distribusi Otomatis
+          reward_token_amount: rewardVal, 
+          reward_token_symbol: 'SOL',
+          distribution_status: 'pending', // Wajib pending agar dicek robot nanti
+
+          min_balance: parseFloat(formData.min_balance),
           entry_fee: parseFloat(formData.entry_fee) || 0,
 
-          // Data Premium & Akses
           is_premium: accessType !== 'public',
           access_type: accessType,
           room_password: accessType === 'private' ? roomPassword : null,
           whitelist: whitelistArray,
           
-          // Data Pembayaran
           is_paid: true, 
           payment_signature: paymentResult.signature,
-          price_paid: totalCost,
+          price_paid: totalCost, 
           edit_count: 0
         }
       ]);
@@ -226,29 +270,8 @@ export default function CreateArenaPage() {
 
         <div className="bg-[#1E2329] rounded-3xl md:rounded-[3rem] border border-[#2B3139] shadow-2xl overflow-hidden relative">
           
-          {/* OVERLAY STATUS */}
-          {(status !== 'idle' && status !== 'error') && (
-            <div className="absolute inset-0 z-50 bg-[#0B0E11]/95 backdrop-blur-md flex flex-col items-center justify-center text-center p-6 md:p-10">
-               {status === 'success' ? (
-                 <div className="animate-in zoom-in duration-500 flex flex-col items-center">
-                   <div className="w-16 h-16 md:w-20 md:h-20 bg-[#0ECB81] rounded-full flex items-center justify-center mb-6 shadow-xl shadow-[#0ECB81]/20">
-                     <CheckCircle2 size={32} className="text-black" />
-                   </div>
-                   <h2 className="text-2xl md:text-3xl font-black uppercase italic text-white mb-2">Arena Published!</h2>
-                   <p className="text-[#848E9C] text-sm mb-8">Payment successfully verified on-chain.</p>
-                   <button onClick={() => safeNavigate('/admin/dashboard')} className="w-full max-w-xs py-4 bg-[#FCD535] text-black rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-[#F0B90B] transition-all active:scale-95 shadow-lg">MANAGE MY ARENA</button>
-                 </div>
-               ) : (
-                 <div className="flex flex-col items-center">
-                   <Loader2 className="w-12 h-12 md:w-16 md:h-16 text-[#FCD535] animate-spin mb-6" />
-                   <h2 className="text-xl md:text-2xl font-black uppercase italic text-white mb-2">
-                     {status === 'paying' ? "Waiting for Wallet..." : status === 'confirming' ? "Validating Network..." : "Publishing Arena..."}
-                   </h2>
-                   <p className="text-[#848E9C] text-xs md:text-sm">Please do not close this window.</p>
-                 </div>
-               )}
-            </div>
-          )}
+          {/* --- MENGGUNAKAN STATUS OVERLAY (Extracted Component) --- */}
+          <StatusOverlay status={status} onNavigate={safeNavigate} />
 
           {/* HEADER FORM */}
           <div className="p-6 md:p-10 border-b border-[#2B3139] bg-[#1E2329]/50">
@@ -257,7 +280,7 @@ export default function CreateArenaPage() {
               <div>
                 <h1 className="text-xl md:text-3xl font-black uppercase tracking-tighter italic leading-none">Launch Arena</h1>
                 <p className="text-[#848E9C] text-[9px] md:text-[10px] font-black uppercase tracking-widest mt-2 italic">
-                  Base Fee: <span className="text-[#FCD535]">{CREATION_FEE_SOL} SOL</span>
+                  Create, Fund & Compete
                 </p>
               </div>
             </div>
@@ -280,13 +303,35 @@ export default function CreateArenaPage() {
               <textarea name="description" required disabled={status !== 'idle'} value={formData.description} onChange={handleChange} placeholder="Explain the rules..." className="w-full bg-[#0B0E11] p-4 md:p-5 rounded-2xl border border-[#2B3139] focus:border-[#FCD535] outline-none font-medium text-xs md:text-sm leading-relaxed text-[#EAECEF] min-h-[100px]" />
             </div>
 
-            {/* --- [BARU] INPUT ENTRY FEE --- */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-8">
+              {/* --- INPUT REWARD (ANGKA) --- */}
+              <div className="space-y-2 md:space-y-3">
+                <label className="text-[10px] font-black text-[#FCD535] uppercase tracking-widest ml-1 flex items-center gap-1"><Gift size={12}/> Reward Pool (Deposit Required)</label>
+                <div className="relative">
+                   <input type="number" step="0.01" name="reward" required disabled={status !== 'idle'} value={formData.reward} onChange={handleChange} placeholder="e.g. 10" className="w-full bg-[#0B0E11] pl-4 pr-12 py-4 md:py-5 rounded-2xl border border-[#FCD535]/50 focus:border-[#FCD535] outline-none font-bold text-sm text-[#FCD535]" />
+                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[#848E9C] font-black text-xs">SOL</span>
+                </div>
+                <p className="text-[9px] text-[#848E9C] leading-tight">
+                   *Total hadiah yang akan dibagikan otomatis ke pemenang. Wajib deposit sekarang.
+                </p>
+              </div>
+
+              <div className="space-y-2 md:space-y-3">
+                <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">Min Balance Req (SOL)</label>
+                <div className="relative">
+                  <Coins className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 text-[#474D57]" size={18} />
+                  <input type="number" step="0.1" name="min_balance" required disabled={status !== 'idle'} value={formData.min_balance} onChange={handleChange} placeholder="Example: 1.0" className="w-full bg-[#0B0E11] pl-12 md:pl-14 pr-4 md:pr-5 py-4 md:py-5 rounded-2xl border border-[#2B3139] focus:border-[#FCD535] outline-none font-bold text-sm" />
+                </div>
+              </div>
+            </div>
+
+            {/* --- INPUT ENTRY FEE --- */}
             <div className="p-5 bg-[#0B0E11] border border-[#2B3139] rounded-2xl space-y-4">
                <div className="flex items-center gap-3 mb-2">
                   <div className="p-2 bg-[#FCD535]/10 rounded-lg text-[#FCD535]"><Ticket size={18} /></div>
                   <div>
                      <label className="text-[10px] font-black text-[#FCD535] uppercase tracking-widest block">Entry Fee (Ticket Price)</label>
-                     <p className="text-[9px] text-[#848E9C]">Cost for users to join. You get 90% share!</p>
+                     <p className="text-[9px] text-[#848E9C]">Optional. Set to 0 for Free Entry. You earn 90% of ticket sales!</p>
                   </div>
                </div>
                <div className="relative">
@@ -361,30 +406,34 @@ export default function CreateArenaPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-8">
-              <div className="space-y-2 md:space-y-3">
-                <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">Main Reward</label>
-                <input name="reward" required disabled={status !== 'idle'} value={formData.reward} onChange={handleChange} placeholder="Example: 10 SOL" className="w-full bg-[#0B0E11] p-4 md:p-5 rounded-2xl border border-[#2B3139] focus:border-[#FCD535] outline-none font-bold text-sm" />
+            {/* --- TOTAL PAYMENT SUMMARY --- */}
+            <div className="bg-[#181A20] p-6 md:p-8 rounded-[1.5rem] md:rounded-[2rem] border border-[#2B3139] shadow-inner">
+              <div className="flex justify-between items-end mb-2">
+                 <div className="max-w-[70%]">
+                    <p className="text-[10px] font-black text-white uppercase tracking-widest leading-none mb-1">Total Payment</p>
+                    <p className="text-[9px] text-[#848E9C] font-bold uppercase tracking-tighter leading-tight">
+                       Includes: Platform Fee + Reward Pool Deposit
+                    </p>
+                 </div>
+                 <p className="text-xl md:text-2xl font-black text-[#FCD535] italic shrink-0">{totalCost.toFixed(2)} SOL</p>
               </div>
-              <div className="space-y-2 md:space-y-3">
-                <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">Min Balance Req (SOL)</label>
-                <div className="relative">
-                  <Coins className="absolute left-4 md:left-5 top-1/2 -translate-y-1/2 text-[#474D57]" size={18} />
-                  <input type="number" step="0.1" name="min_balance" required disabled={status !== 'idle'} value={formData.min_balance} onChange={handleChange} placeholder="Example: 1.0" className="w-full bg-[#0B0E11] pl-12 md:pl-14 pr-4 md:pr-5 py-4 md:py-5 rounded-2xl border border-[#2B3139] focus:border-[#FCD535] outline-none font-bold text-sm" />
-                </div>
+              
+              <div className="mt-4 pt-4 border-t border-[#2B3139]/50 space-y-1 text-[9px] font-mono text-[#848E9C]">
+                 <div className="flex justify-between">
+                    <span>Creation Fee:</span>
+                    <span>{CREATION_FEE_SOL} SOL</span>
+                 </div>
+                 {accessType !== 'public' && (
+                    <div className="flex justify-between">
+                       <span>Premium Fee ({accessType}):</span>
+                       <span>{accessType === 'private' ? PRIVATE_FEE_SOL : WHITELIST_FEE_SOL} SOL</span>
+                    </div>
+                 )}
+                 <div className="flex justify-between text-[#FCD535]">
+                    <span>Reward Deposit:</span>
+                    <span>{rewardNumeric} SOL</span>
+                 </div>
               </div>
-            </div>
-
-            <div className="bg-[#181A20] p-6 md:p-8 rounded-[1.5rem] md:rounded-[2rem] border border-[#2B3139] flex items-center justify-between shadow-inner">
-              <div className="max-w-[70%]">
-                <p className="text-[10px] font-black text-white uppercase tracking-widest leading-none mb-1">Total Creation Cost</p>
-                <p className="text-[8px] md:text-[9px] text-[#848E9C] font-bold uppercase tracking-tighter leading-tight">
-                  {accessType === 'public' 
-                    ? "Base Fee (Public Room)" 
-                    : `Basic (${CREATION_FEE_SOL}) + Premium (${accessType === 'private' ? PRIVATE_FEE_SOL : WHITELIST_FEE_SOL})`}
-                </p>
-              </div>
-              <p className="text-lg md:text-xl font-black text-white italic shrink-0">{totalCost.toFixed(1)} SOL</p>
             </div>
 
             <button 

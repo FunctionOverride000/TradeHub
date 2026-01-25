@@ -3,42 +3,20 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Search, 
-  Trophy, 
   ArrowLeft, 
   Loader2, 
   TrendingUp, 
-  Clock, 
-  Zap, 
-  Filter, 
-  ArrowRight, 
-  ShieldCheck, 
-  Activity, 
-  User, 
-  Star, 
-  BookOpen, 
-  LayoutDashboard, 
-  ChevronRight, 
-  Globe, 
-  Rocket, 
-  Crown,  
-  Lock,   
-  Users,
-  Ticket // Menambahkan Import Ticket
+  Globe
 } from 'lucide-react';
 
-/**
- * MENGGUNAKAN ESM CDN:
- * Menjamin library dimuat dengan stabil di lingkungan preview tanpa node_modules lokal.
- */
 import { createClient } from '@supabase/supabase-js';
 import { useLanguage } from '../../lib/LanguageContext';
+import ArenaCard from '../../components/arenas/ArenaCard';
 
 // --- KONFIGURASI SUPABASE ---
-// Gunakan nilai default kosong jika env var tidak ada (untuk build safety)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Hanya inisialisasi client jika URL & Key valid
 const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
@@ -57,21 +35,16 @@ interface Room {
   is_paid: boolean;
   is_boosted?: boolean; 
   access_type?: 'public' | 'private' | 'whitelist';
-  entry_fee?: number; // Pastikan field ini ada
+  entry_fee?: number; 
   participants_count?: number;
 }
 
-/**
- * PROPS DEFINITION FOR NEXT.JS 15:
- * Menambahkan tipe props eksplisit untuk memuaskan validator rute Next.js.
- */
 interface PageProps {
   params: Promise<any>;
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
 export default function ArenasExplorer(props: PageProps) {
-  // Unused props but declared to satisfy Next.js 15 type validation
   const _params = React.use(props.params);
   const _searchParams = React.use(props.searchParams);
 
@@ -92,15 +65,13 @@ export default function ArenasExplorer(props: PageProps) {
     }
   }, []);
 
-  // --- LOGIKA PRIORITAS STATUS (Sama seperti Lobby) ---
   const getStatusPriority = (start: string, end: string, now: Date) => {
-    if (now >= new Date(start) && now <= new Date(end)) return 1; // Live
-    if (now < new Date(start)) return 2; // Upcoming
-    return 3; // Finished
+    if (now >= new Date(start) && now <= new Date(end)) return 1; 
+    if (now < new Date(start)) return 2; 
+    return 3; 
   };
 
   const fetchData = async () => {
-    // 1. Safety Check: Jika supabase client tidak ada (misal saat build tanpa env), stop.
     if (!supabase) {
         setIsLoading(false);
         return;
@@ -116,24 +87,19 @@ export default function ArenasExplorer(props: PageProps) {
 
       const now = new Date();
 
-      // --- SORTING LOGIC: Boosted -> Status -> CreatedAt ---
       const sortedRooms = (roomData || []).sort((a, b) => {
-        // 1. Boosted First
         if (a.is_boosted !== b.is_boosted) {
             return (a.is_boosted ? -1 : 1);
         }
-        // 2. Status Priority
         const statusA = getStatusPriority(a.start_time, a.end_time, now);
         const statusB = getStatusPriority(b.start_time, b.end_time, now);
         if (statusA !== statusB) return statusA - statusB;
-        // 3. Created At
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
 
       setRooms(sortedRooms);
     } catch (err: any) {
-      // 2. Error Handling yang aman (Warning instead of Error)
-      // console.warn("Fetch warning (non-critical):", err?.message || err);
+       // Silent error
     } finally {
       setIsLoading(false);
     }
@@ -180,14 +146,11 @@ export default function ArenasExplorer(props: PageProps) {
           </div>
           
           <div className="flex items-center gap-4">
-            {/* Language Switcher */}
             <div className="flex items-center gap-2 bg-[#1E2329] border border-[#2B3139] rounded-xl p-1">
               <button
                 onClick={() => setLanguage('id')}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                  language === 'id' 
-                    ? 'bg-[#FCD535] text-black' 
-                    : 'text-[#848E9C] hover:text-white'
+                  language === 'id' ? 'bg-[#FCD535] text-black' : 'text-[#848E9C] hover:text-white'
                 }`}
               >
                 ID
@@ -195,9 +158,7 @@ export default function ArenasExplorer(props: PageProps) {
               <button
                 onClick={() => setLanguage('en')}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                  language === 'en' 
-                    ? 'bg-[#FCD535] text-black' 
-                    : 'text-[#848E9C] hover:text-white'
+                  language === 'en' ? 'bg-[#FCD535] text-black' : 'text-[#848E9C] hover:text-white'
                 }`}
               >
                 EN
@@ -271,76 +232,16 @@ export default function ArenasExplorer(props: PageProps) {
                  </div>
               </div>
             ) : (
-              filteredRooms.map((room, idx) => {
-                const status = getArenaStatus(room.start_time, room.end_time);
-                return (
-                  <div 
-                    key={room.id} 
-                    onClick={() => safeNavigate(`/lomba/${room.id}`)} 
-                    className={`group bg-[#1E2329] rounded-[2.5rem] border ${room.is_boosted ? 'border-[#FCD535] shadow-[0_0_30px_rgba(252,213,53,0.1)]' : 'border-[#2B3139]'} p-8 lg:p-10 hover:border-[#FCD535]/50 transition-all duration-700 cursor-pointer shadow-2xl flex flex-col h-full hover:-translate-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-4`}
-                    style={{ animationDelay: `${idx * 50}ms` }}
-                  >
-                    {/* --- BADGES (FEATURED / PRIVATE / WHITELIST) --- */}
-                    <div className="absolute top-0 right-0 z-10 flex flex-col items-end">
-                       {room.is_boosted && (
-                          <div className="bg-[#FCD535] text-black text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-bl-2xl flex items-center gap-2 mb-[1px] shadow-sm">
-                             <Rocket size={12} /> Featured
-                          </div>
-                       )}
-                       {room.access_type === 'private' && (
-                          <div className="bg-[#F6465D] text-white text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-bl-2xl flex items-center gap-2 shadow-sm">
-                             <Lock size={12} /> Private
-                          </div>
-                       )}
-                       {room.access_type === 'whitelist' && (
-                          <div className="bg-purple-500 text-white text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-bl-2xl flex items-center gap-2 shadow-sm">
-                             <Users size={12} /> Whitelist
-                          </div>
-                       )}
-                    </div>
-
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-[#FCD535]/5 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                    
-                    <div className="flex justify-between items-start mb-10">
-                      <div className={`w-12 h-12 bg-[#0B0E11] rounded-2xl flex items-center justify-center text-[#FCD535] border border-[#2B3139] shadow-inner group-hover:rotate-6 transition-transform`}>
-                        <Trophy size={24} />
-                      </div>
-                      <div className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border ${status.color} flex items-center gap-2`}>
-                         {status.isLive && <span className="inline-block w-1 h-1 rounded-full bg-[#0ECB81] animate-ping"></span>}
-                         {status.label}
-                      </div>
-                    </div>
-                    
-                    <h3 className="text-xl lg:text-2xl font-black text-white mb-4 uppercase italic line-clamp-1 tracking-tighter group-hover:text-[#FCD535] transition-colors">{room.title}</h3>
-                    
-                    {/* IMPLEMENTASI BADGE TIKET (ENTRY FEE) */}
-                    {room.entry_fee && room.entry_fee > 0 ? (
-                        <div className="mb-6 inline-flex bg-[#FCD535]/10 text-[#FCD535] border border-[#FCD535]/20 px-3 py-1 rounded-lg text-[10px] font-bold items-center gap-1">
-                            <Ticket size={12} /> Entry: {room.entry_fee} SOL
-                        </div>
-                    ) : (
-                        <p className="text-xs text-[#848E9C] font-medium leading-relaxed line-clamp-3 mb-10 flex-1 italic">{room.description}</p>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-4 pt-6 border-t border-[#2B3139]">
-                      <div className="flex flex-col">
-                        <span className="text-[8px] font-black text-[#474D57] uppercase tracking-widest mb-1">{t.explorer.rewards}</span>
-                        <span className="text-base font-black text-[#FCD535] italic truncate leading-none">{room.reward}</span>
-                      </div>
-                      <div className="flex flex-col text-right">
-                        <span className="text-[8px] font-black text-[#474D57] uppercase tracking-widest mb-1">{t.explorer.entry}</span>
-                        <span className="text-base font-black text-white font-mono leading-none">{room.min_balance} SOL</span>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-8 w-full py-4 bg-[#0B0E11] rounded-2xl flex items-center justify-center gap-2 border border-[#2B3139] group-hover:bg-[#2B3139] group-hover:border-[#FCD535]/30 transition-all shadow-inner">
-                      {/* PERBAIKAN: Menggunakan text hardcoded 'ENTER ARENA' karena key enter_btn tidak ada di types */}
-                      <span className="text-[9px] font-black uppercase tracking-widest group-hover:text-[#FCD535]">ENTER ARENA</span>
-                      <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                    </div>
-                  </div>
-                );
-              })
+              filteredRooms.map((room, idx) => (
+                 <ArenaCard 
+                    key={room.id}
+                    room={room}
+                    index={idx}
+                    status={getArenaStatus(room.start_time, room.end_time)}
+                    t={t}
+                    onClick={() => safeNavigate(`/lomba/${room.id}`)}
+                 />
+              ))
             )}
           </div>
         )}
@@ -348,7 +249,7 @@ export default function ArenasExplorer(props: PageProps) {
 
       {/* --- FOOTER --- */}
       <footer className="py-20 text-center opacity-20 border-t border-[#2B3139]/30">
-         <p className="text-[10px] font-black uppercase tracking-[1.5em] italic">{t.explorer.footer}</p>
+          <p className="text-[10px] font-black uppercase tracking-[1.5em] italic">{t.explorer.footer}</p>
       </footer>
     </div>
   );

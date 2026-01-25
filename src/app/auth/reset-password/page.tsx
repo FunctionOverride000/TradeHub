@@ -16,17 +16,14 @@ import {
   ShieldAlert
 } from 'lucide-react';
 
-/**
- * MENGGUNAKAN ESM CDN:
- * Menjamin library dimuat dengan stabil di lingkungan pratinjau.
- */
 import { createClient } from '@supabase/supabase-js';
 import { useLanguage } from '../../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../../lib/LanguageSwitcher';
+import CustomPopup from '../../../components/auth/CustomPopup'; // Import CustomPopup
 
 // --- KONFIGURASI SUPABASE ---
-const supabaseUrl = 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function ResetPasswordPage() {
@@ -36,13 +33,24 @@ export default function ResetPasswordPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
+  
   // --- MFA HANDLER STATES ---
   const [showMfaChallenge, setShowMfaChallenge] = useState(false);
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
   const [isAAL2, setIsAAL2] = useState(false);
+
+  // State Popup (Menggantikan errorMsg string biasa)
+  const [popup, setPopup] = useState<{show: boolean, type: 'success' | 'error' | 'info', title: string, message: string}>({
+    show: false,
+    type: 'info',
+    title: '',
+    message: ''
+  });
+
+  const showPopup = (type: 'success' | 'error' | 'info', title: string, message: string) => {
+    setPopup({ show: true, type, title, message });
+  };
 
   const safeNavigate = (path: string) => {
     window.location.href = path;
@@ -52,7 +60,7 @@ export default function ResetPasswordPage() {
     const checkSecurityLevel = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        setErrorMsg("Link is invalid or has expired. Please request a new link from the login page.");
+        showPopup('error', "Session Expired", "Link is invalid or has expired. Please request a new link from the login page.");
         return;
       }
 
@@ -80,7 +88,6 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     if (!mfaFactorId || mfaCode.length < 6) return;
     setIsLoading(true);
-    setErrorMsg(null);
 
     try {
       const { data: challengeData, error: challengeError } = await (supabase.auth as any).mfa.challenge({
@@ -101,7 +108,7 @@ export default function ResetPasswordPage() {
       setShowMfaChallenge(false);
       setMfaCode("");
     } catch (err: any) {
-      setErrorMsg(t.auth.errors.invalid_code_desc);
+      showPopup('error', t.auth.errors.invalid_code, t.auth.errors.invalid_code_desc);
     } finally {
       setIsLoading(false);
     }
@@ -111,17 +118,16 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     
     if (newPassword !== confirmPassword) {
-      setErrorMsg("Password confirmation does not match.");
+      showPopup('error', "Mismatch", "Password confirmation does not match.");
       return;
     }
     
     if (newPassword.length < 6) {
-      setErrorMsg("Password must be at least 6 characters.");
+      showPopup('error', "Too Short", "Password must be at least 6 characters.");
       return;
     }
 
     setIsLoading(true);
-    setErrorMsg(null);
 
     try {
       // Update password
@@ -136,7 +142,7 @@ export default function ResetPasswordPage() {
       await supabase.auth.signOut();
       
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to update password.");
+      showPopup('error', "Update Failed", err.message || "Failed to update password.");
     } finally {
       setIsLoading(false);
     }
@@ -166,35 +172,37 @@ export default function ResetPasswordPage() {
     return (
       <div className="min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans flex items-center justify-center p-6 relative overflow-hidden">
         <div className="absolute inset-0 bg-[linear-gradient(rgba(30,33,38,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,33,38,0.5)_1px,transparent_1px)] bg-[size:40px_40px] opacity:10 pointer-events-none"></div>
+        
+        <CustomPopup 
+          isOpen={popup.show} 
+          type={popup.type} 
+          title={popup.title} 
+          message={popup.message} 
+          onClose={() => setPopup(prev => ({ ...prev, show: false }))} 
+        />
+
         <div className="w-full max-w-md relative z-10">
           <div className="mb-12 text-center">
-             <div className="w-16 h-16 bg-[#FCD535]/10 border border-[#FCD535]/20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl text-[#FCD535]"><ShieldAlert size={32} /></div>
-             <h2 className="text-4xl font-black mb-3 text-white tracking-tighter uppercase italic">{t.auth.mfa_required}</h2>
-             <p className="text-[#848E9C] font-medium leading-relaxed italic uppercase tracking-widest text-[10px]">Additional identity verification required to reset password.</p>
+              <div className="w-16 h-16 bg-[#FCD535]/10 border border-[#FCD535]/20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl text-[#FCD535]"><ShieldAlert size={32} /></div>
+              <h2 className="text-4xl font-black mb-3 text-white tracking-tighter uppercase italic">{t.auth.mfa_required}</h2>
+              <p className="text-[#848E9C] font-medium leading-relaxed italic uppercase tracking-widest text-[10px]">Additional identity verification required to reset password.</p>
           </div>
 
-          {errorMsg && (
-            <div className="mb-8 p-4 bg-red-500/10 border border-red-500/50 rounded-2xl flex items-center gap-3 text-red-500">
-              <AlertTriangle size={20} />
-              <p className="text-xs font-black uppercase tracking-widest leading-none">{errorMsg}</p>
-            </div>
-          )}
-
           <form onSubmit={handleVerifyMfa} className="space-y-8">
-             <div className="bg-[#1E2329] p-2 rounded-[2rem] border border-[#2B3139] shadow-inner flex flex-col items-center">
+              <div className="bg-[#1E2329] p-2 rounded-[2rem] border border-[#2B3139] shadow-inner flex flex-col items-center">
                 <input 
                   type="text" maxLength={6} autoFocus value={mfaCode}
                   onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ""))}
                   placeholder="000 000"
                   className="w-full bg-transparent px-6 py-8 text-center font-mono text-5xl tracking-[0.2em] text-[#FCD535] outline-none"
                 />
-             </div>
-             <button 
-               type="submit" disabled={isLoading || mfaCode.length < 6}
-               className="w-full bg-[#FCD535] text-black py-6 rounded-[1.8rem] font-black uppercase text-xs tracking-[0.3em] flex items-center justify-center gap-4 hover:bg-[#F0B90B] transition-all"
-             >
-               {isLoading ? <Loader2 className="animate-spin" size={24} /> : t.auth.verify_identity.toUpperCase()}
-             </button>
+              </div>
+              <button 
+                type="submit" disabled={isLoading || mfaCode.length < 6}
+                className="w-full bg-[#FCD535] text-black py-6 rounded-[1.8rem] font-black uppercase text-xs tracking-[0.3em] flex items-center justify-center gap-4 hover:bg-[#F0B90B] transition-all"
+              >
+                {isLoading ? <Loader2 className="animate-spin" size={24} /> : t.auth.verify_identity.toUpperCase()}
+              </button>
           </form>
         </div>
       </div>
@@ -207,6 +215,14 @@ export default function ResetPasswordPage() {
       <div className="absolute inset-0 bg-[linear-gradient(rgba(30,33,38,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,33,38,0.5)_1px,transparent_1px)] bg-[size:40px_40px] opacity:10 pointer-events-none"></div>
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[#FCD535] rounded-full blur-[180px] opacity-[0.03]"></div>
 
+      <CustomPopup 
+          isOpen={popup.show} 
+          type={popup.type} 
+          title={popup.title} 
+          message={popup.message} 
+          onClose={() => setPopup(prev => ({ ...prev, show: false }))} 
+      />
+
       <div className="w-full max-w-md relative z-10">
         <div className="flex items-center justify-between mb-16">
           <div className="flex items-center justify-center gap-3 cursor-pointer" onClick={() => safeNavigate('/')}>
@@ -217,17 +233,10 @@ export default function ResetPasswordPage() {
         </div>
 
         <div className="mb-12 text-center">
-           <div className="w-16 h-16 bg-[#1E2329] border border-[#2B3139] rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl text-[#FCD535]"><KeyRound size={32} /></div>
-           <h2 className="text-4xl font-black mb-3 text-white tracking-tighter uppercase italic leading-none">Reset Password</h2>
-           <p className="text-[#848E9C] font-medium leading-relaxed italic uppercase tracking-widest text-[10px]">Session verified. Please enter your new password.</p>
+            <div className="w-16 h-16 bg-[#1E2329] border border-[#2B3139] rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl text-[#FCD535]"><KeyRound size={32} /></div>
+            <h2 className="text-4xl font-black mb-3 text-white tracking-tighter uppercase italic leading-none">Reset Password</h2>
+            <p className="text-[#848E9C] font-medium leading-relaxed italic uppercase tracking-widest text-[10px]">Session verified. Please enter your new password.</p>
         </div>
-
-        {errorMsg && (
-          <div className="mb-8 p-4 bg-red-500/10 border border-red-500/50 rounded-2xl flex items-center gap-3 text-red-500">
-            <AlertTriangle size={20} />
-            <p className="text-xs font-black uppercase tracking-widest leading-none">{errorMsg}</p>
-          </div>
-        )}
 
         <form onSubmit={handleReset} className="space-y-6">
           <div className="space-y-2">

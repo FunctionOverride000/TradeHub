@@ -2,59 +2,31 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Trophy, 
-  Medal, 
-  TrendingUp, 
-  ShieldCheck, 
-  Globe,
-  Activity,
-  ArrowUpRight,
-  Loader2,
-  Search,
-  Users,
-  Award,
-  Star,
-  ShieldAlert,
-  Menu,
-  X,
-  LayoutDashboard,
-  ArrowLeft,
-  ChevronRight,
-  Zap,
+  ArrowLeft, 
+  Loader2, 
+  Search, 
+  Star, 
   Flame
 } from 'lucide-react';
 
-/**
- * MENGGUNAKAN ESM CDN:
- * Menjamin library dimuat dengan stabil di lingkungan pratinjau.
- */
 import { createClient } from '@supabase/supabase-js';
 import * as web3 from '@solana/web3.js';
-import { useLanguage } from '../../lib/LanguageContext';
-import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
+import { useLanguage } from '@/lib/LanguageContext';
+import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
+
+// --- IMPORT NEW COMPONENTS ---
+import TopTraderCard, { GlobalTrader } from '@/components/hall-of-fame/TopTraderCard';
+import TraderRow from '@/components/hall-of-fame/TraderRow';
 
 // --- KONFIGURASI SUPABASE ---
-// Gunakan nilai default kosong jika env var tidak ada (untuk build safety)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Hanya inisialisasi client jika URL & Key valid
 const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com';
-
-interface GlobalTrader {
-  user_id: string;
-  wallet_address: string;
-  total_initial: number;
-  total_current: number;
-  total_deposit: number;
-  total_profit: number;
-  participation_count: number;
-  avg_roi: number;
-}
 
 export default function HallOfFamePage() {
   const { t } = useLanguage();
@@ -118,7 +90,6 @@ export default function HallOfFamePage() {
   };
 
   const fetchGlobalStats = async () => {
-    // Safety check: Jika supabase belum init, stop.
     if (!supabase) {
         setIsLoading(false);
         return;
@@ -166,8 +137,7 @@ export default function HallOfFamePage() {
       setupGlobalSync(sortedTraders);
 
     } catch (err) {
-      // Ubah console.error jadi console.warn agar tidak terlihat menakutkan saat build
-      // console.warn("Hall of Fame sync warning (non-critical)."); 
+       // Silent error
     } finally {
       setIsLoading(false);
       setIsSyncing(false);
@@ -207,15 +177,15 @@ export default function HallOfFamePage() {
       <header className="relative z-10 pt-20 lg:pt-32 pb-20 border-b border-[#2B3139] bg-[#0B0E11]/80 backdrop-blur-xl sticky top-0">
         <div className="max-w-7xl mx-auto px-8 flex flex-col md:flex-row items-center justify-between gap-8">
            <div className="flex items-center gap-6 animate-in slide-in-from-left-4 duration-700">
-              <button onClick={() => safeNavigate('/')} className="p-4 bg-[#1E2329] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90 shadow-xl group">
+             <button onClick={() => safeNavigate('/')} className="p-4 bg-[#1E2329] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90 shadow-xl group">
                  <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-              </button>
-              <div>
+             </button>
+             <div>
                  <div className="flex items-center gap-3 text-[#FCD535] font-black text-[10px] uppercase tracking-[0.4em] mb-3">
                     <Star size={14} fill="currentColor" /> {t.nav.hall_of_fame}
                  </div>
                  <h1 className="text-4xl lg:text-7xl font-black text-white uppercase italic tracking-tighter leading-none">Global <span className="text-[#FCD535]">Rankings</span></h1>
-              </div>
+             </div>
            </div>
 
            <div className="flex flex-col md:flex-row items-center gap-6 w-full md:w-auto animate-in slide-in-from-right-4 duration-700">
@@ -239,46 +209,14 @@ export default function HallOfFamePage() {
         
         {/* TOP 3 LEGENDS - Redesigned Premium Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 lg:gap-14 mb-24 items-end">
-           {filteredTraders.slice(0, 3).map((t, idx) => {
-             const isGold = idx === 0;
-             const isSilver = idx === 1;
-             const isBronze = idx === 2;
-             
-             return (
-               <div 
+           {filteredTraders.slice(0, 3).map((t, idx) => (
+              <TopTraderCard 
                  key={t.user_id} 
+                 trader={t} 
+                 index={idx} 
                  onClick={() => safeNavigate(`/profile/${t.user_id}`)} 
-                 className={`p-10 rounded-[3.5rem] border transition-all duration-700 cursor-pointer relative overflow-hidden group hover:-translate-y-4 animate-in fade-in slide-in-from-bottom-8 ${isGold ? 'bg-gradient-to-br from-[#FCD535]/10 to-[#0B0E11] border-[#FCD535]/40 shadow-[0_40px_80px_rgba(252,213,53,0.15)] order-2 md:h-[500px] flex flex-col justify-center' : 'bg-[#1E2329] border-[#2B3139] h-[400px] ' + (isSilver ? 'order-1' : 'order-3')}`}
-                 style={{ animationDelay: `${idx * 150}ms` }}
-               >
-                  <div className="absolute top-0 right-0 p-10 opacity-10 group-hover:opacity-20 transition-opacity">
-                     <Trophy size={120} className={isGold ? 'text-[#FCD535]' : isSilver ? 'text-slate-400' : 'text-orange-600'} />
-                  </div>
-                  
-                  <div className="relative z-10">
-                     <div className={`w-20 h-20 rounded-3xl mb-10 flex items-center justify-center text-4xl font-black shadow-2xl border ${isGold ? 'bg-[#FCD535] text-black border-[#FCD535]' : 'bg-[#0B0E11] text-white border-[#2B3139]'}`}>
-                        {idx + 1}
-                     </div>
-                     
-                     <p className="text-[11px] font-black text-[#474D57] uppercase tracking-[0.4em] mb-3 italic">Master Identity</p>
-                     <h3 className="text-2xl lg:text-3xl font-black text-white uppercase italic tracking-tighter mb-10 group-hover:text-[#FCD535] transition-colors truncate">
-                       {t.wallet_address.slice(0, 14)}...
-                     </h3>
-                     
-                     <div className="grid grid-cols-2 gap-8 pt-8 border-t border-white/5">
-                        <div>
-                           <p className="text-[10px] font-black text-[#474D57] uppercase mb-2 tracking-widest leading-none">Net Profit</p>
-                           <p className="text-3xl font-black text-[#0ECB81] italic tracking-tighter">+{t.total_profit.toFixed(2)}<span className="text-xs not-italic ml-1">SOL</span></p>
-                        </div>
-                        <div>
-                           <p className="text-[10px] font-black text-[#474D57] uppercase mb-2 tracking-widest leading-none">Global ROI</p>
-                           <p className="text-3xl font-black text-white italic tracking-tighter">+{t.avg_roi.toFixed(1)}%</p>
-                        </div>
-                     </div>
-                  </div>
-               </div>
-             );
-           })}
+              />
+           ))}
         </div>
 
         {/* RANKING LIST TABLE - Redesigned with Glass-morphism */}
@@ -299,52 +237,14 @@ export default function HallOfFamePage() {
                     {filteredTraders.length === 0 ? (
                       <tr><td colSpan={6} className="p-40 text-center text-[#474D57] font-black uppercase tracking-[0.5em] italic opacity-30 text-xs">Zero legendary records found in the current ledger scan.</td></tr>
                     ) : (
-                      filteredTraders.map((t, idx) => {
-                        const isAdjusted = t.total_deposit > 0;
-                        return (
-                          <tr key={t.user_id} className="hover:bg-[#2B3139]/40 transition-all group cursor-pointer" onClick={() => safeNavigate(`/profile/${t.user_id}`)}>
-                             <td className="p-10">
-                                <span className={`text-2xl lg:text-3xl font-black italic ${idx < 3 ? 'text-[#FCD535]' : 'text-[#474D57]'}`}>
-                                  {idx < 9 ? `0${idx + 1}` : idx + 1}
-                                </span>
-                             </td>
-                             <td className="p-10">
-                                <div className="flex items-center gap-6">
-                                   <div className="w-12 h-12 rounded-2xl bg-[#0B0E11] border border-[#2B3139] flex items-center justify-center text-[#848E9C] group-hover:text-[#FCD535] group-hover:border-[#FCD535]/30 transition-all shadow-inner"><Users size={20}/></div>
-                                   <div className="flex flex-col">
-                                      <span className="font-mono text-sm font-black text-[#EAECEF] group-hover:text-[#FCD535] transition-colors tracking-tight">
-                                        {t.wallet_address.slice(0, 10)}...{t.wallet_address.slice(-10)}
-                                      </span>
-                                      <div className="flex items-center gap-3 mt-1.5">
-                                         <span className="text-[8px] font-black text-[#0ECB81] uppercase tracking-[0.2em] bg-[#0ECB81]/10 px-2 py-0.5 rounded-md border border-[#0ECB81]/20 italic">On-Chain Evidence</span>
-                                         {isAdjusted && (
-                                           <span className="text-[8px] font-black text-yellow-500 uppercase tracking-[0.2em] flex items-center gap-1.5">
-                                             <ShieldAlert size={10}/> Anti-Cheat Verified
-                                           </span>
-                                         )}
-                                      </div>
-                                   </div>
-                                </div>
-                             </td>
-                             <td className="p-10 text-right">
-                                <span className="font-black text-white text-xs uppercase italic tracking-widest">{t.participation_count} Arenas</span>
-                             </td>
-                             <td className="p-10 text-right font-mono font-black text-white text-base">
-                                {t.total_profit >= 0 ? '+' : ''}{t.total_profit.toFixed(3)} <span className="text-[10px] text-[#474D57] font-sans ml-1">SOL</span>
-                             </td>
-                             <td className="p-10 text-center">
-                                <div className={`px-6 py-2.5 rounded-xl font-black text-[10px] lg:text-xs inline-block italic border shadow-lg ${t.total_profit >= 0 ? 'bg-[#0ECB81]/10 text-[#0ECB81] border-[#0ECB81]/20 shadow-[#0ECB81]/5' : 'bg-[#F6465D]/10 text-[#F6465D] border-[#F6465D]/20 shadow-[#F6465D]/5'}`}>
-                                   {t.total_profit >= 0 ? '▲' : '▼'} {Math.abs(t.avg_roi).toFixed(2)}%
-                                </div>
-                             </td>
-                             <td className="p-10 text-right">
-                                <button className="p-4 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#848E9C] group-hover:text-[#FCD535] group-hover:border-[#FCD535]/30 transition-all active:scale-90 shadow-inner">
-                                   <ArrowUpRight size={20} />
-                                </button>
-                             </td>
-                          </tr>
-                        );
-                      })
+                      filteredTraders.map((t, idx) => (
+                         <TraderRow 
+                            key={t.user_id} 
+                            trader={t} 
+                            index={idx} 
+                            onClick={() => safeNavigate(`/profile/${t.user_id}`)} 
+                         />
+                      ))
                     )}
                  </tbody>
               </table>
@@ -372,7 +272,6 @@ export default function HallOfFamePage() {
       </main>
 
       <footer className="py-32 text-center opacity-10 border-t border-[#2B3139]/30 flex flex-col items-center gap-4">
-         <TrendingUp size={40} className="text-white" />
          <p className="text-[10px] font-black uppercase tracking-[1.5em] italic">TradeHub • Global Integrity Layer</p>
       </footer>
     </div>

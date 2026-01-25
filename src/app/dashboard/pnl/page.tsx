@@ -1,42 +1,26 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  LayoutDashboard, 
-  Trophy, 
+  Trophy, // Menambahkan Trophy yang sebelumnya hilang
   User, 
-  Settings as SettingsIcon, 
-  LogOut, 
-  CheckCircle, 
-  Clock, 
-  Download, 
-  Share2, 
-  Award, 
   Loader2, 
-  Medal, 
-  TrendingUp, 
   BarChart2, 
   Wallet, 
-  Globe,
-  AlertTriangle,
-  Activity,
-  ArrowUpRight,
-  PieChart,
-  Menu,
-  X,
-  Shield,
-  Star,
-  BookOpen
+  AlertTriangle, 
+  Activity, 
+  ArrowUpRight, 
+  PieChart, 
+  Menu
 } from 'lucide-react';
 
-/**
- * MENGGUNAKAN ESM CDN:
- * Menjamin library dimuat dengan benar di lingkungan preview tanpa node_modules lokal.
- */
 import { createClient } from '@supabase/supabase-js';
 import * as web3 from '@solana/web3.js';
-import { useLanguage } from '../../../lib/LanguageContext';
-import { LanguageSwitcher } from '../../../lib/LanguageSwitcher';
+import { useLanguage } from '@/lib/LanguageContext';
+import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
+
+// --- IMPORT COMPONENT ---
+import UserSidebar from '@/components/dashboard/UserSidebar';
 
 // --- KONFIGURASI SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
@@ -68,6 +52,7 @@ export default function PnLAnalysisPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const subscriptionsRef = useRef<number[]>([]);
 
   const safeNavigate = (path: string) => {
     window.location.href = path;
@@ -77,11 +62,8 @@ export default function PnLAnalysisPage() {
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        safeNavigate('/auth');
-      } else {
-        setUser(session.user);
-      }
+      if (!session) safeNavigate('/auth');
+      else setUser(session.user);
     };
     init();
 
@@ -93,23 +75,17 @@ export default function PnLAnalysisPage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  /**
-   * SINKRONISASI ON-CHAIN:
-   * Mengambil saldo terbaru dari Blockchain Solana agar analisis PnL didasarkan pada data nyata.
-   */
   const syncPnLWithBlockchain = async (baseData: ParticipantData[]) => {
     if (baseData.length === 0 || !SOLANA_RPC) return;
     setIsSyncing(true);
     try {
       const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
       const publicKeys = baseData.map(p => new web3.PublicKey(p.wallet_address));
-      
       const accountsInfo = await connection.getMultipleAccountsInfo(publicKeys);
 
       const liveData = baseData.map((p, idx) => {
         const info = accountsInfo[idx];
         const liveBalance = info ? info.lamports / web3.LAMPORTS_PER_SOL : p.current_balance;
-        
         return {
           ...p,
           current_balance: liveBalance,
@@ -118,7 +94,6 @@ export default function PnLAnalysisPage() {
             : 0
         };
       });
-
       setRegistrations(liveData);
     } catch (err) {
       console.error("Gagal sinkronisasi PnL:", err);
@@ -131,7 +106,6 @@ export default function PnLAnalysisPage() {
   // 2. Fetch Data Trading
   useEffect(() => {
     if (!user) return;
-
     const fetchData = async () => {
       try {
         setErrorMsg("");
@@ -159,7 +133,6 @@ export default function PnLAnalysisPage() {
         setIsLoading(false);
       }
     };
-
     fetchData();
   }, [user]);
 
@@ -194,45 +167,19 @@ export default function PnLAnalysisPage() {
     <div className="flex min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans selection:bg-[#FCD535]/30 relative overflow-hidden">
       
       {/* --- SIDEBAR --- */}
-      <aside className={`fixed inset-y-0 left-0 z-[70] w-72 bg-[#181A20] border-r border-[#2B3139] flex flex-col transition-transform duration-300 transform lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} shadow-2xl lg:shadow-none`}>
-        <div className="p-8 border-b border-[#2B3139] flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => safeNavigate('/')}>
-            <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-              <TrendingUp className="text-black w-6 h-6" />
-            </div>
-            <span className="font-black text-xl tracking-tighter text-[#EAECEF]">TradeHub</span>
-          </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-[#848E9C] hover:text-white transition-colors">
-            <X size={22} />
-          </button>
-        </div>
-        <nav className="flex-1 p-6 space-y-2">
-          <SidebarLink onClick={() => safeNavigate('/dashboard')} Icon={LayoutDashboard} label={t.dashboard.sidebar.track_record} />
-          <SidebarLink Icon={BarChart2} label={t.dashboard.sidebar.pnl_analysis} active />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/certificates')} Icon={Award} label={t.dashboard.sidebar.certificates} />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/wallet')} Icon={Wallet} label={t.dashboard.sidebar.wallet} />
-          {/* MENU TAMBAHAN DENGAN IKON KONSISTEN */}
-          <div className="pt-6 border-t border-[#2B3139]/50 mt-4 space-y-2">
-             <SidebarLink onClick={() => safeNavigate('/hall-of-fame')} Icon={Star} label={t.dashboard.sidebar.hall_of_fame} />
-             <SidebarLink onClick={() => safeNavigate('/handbook')} Icon={BookOpen} label={t.dashboard.sidebar.handbook} />
-             <SidebarLink onClick={() => safeNavigate('/dashboard/settings')} Icon={SettingsIcon} label={t.dashboard.sidebar.settings} />
-          </div>
-        </nav>
-        <div className="p-6 border-t border-[#2B3139]">
-          <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 text-[#848E9C] hover:text-[#EAECEF] hover:bg-[#2B3139] rounded-xl transition font-black text-xs uppercase tracking-widest">
-            <LogOut size={16} /> <span>{t.dashboard.sidebar.logout}</span>
-          </button>
-        </div>
-      </aside>
-
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[65] lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
+      <UserSidebar 
+        isSidebarOpen={isSidebarOpen} 
+        setIsSidebarOpen={setIsSidebarOpen} 
+        safeNavigate={safeNavigate}
+        handleLogout={handleLogout}
+      />
 
       <main className="flex-1 flex flex-col lg:ml-72 min-w-0 bg-[#0B0E11] relative overflow-y-auto">
         <div className="absolute inset-0 bg-[linear-gradient(rgba(30,33,38,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,33,38,0.5)_1px,transparent_1px)] bg-[size:40px_40px] opacity:10 pointer-events-none"></div>
 
         <header className="relative z-50 px-6 lg:px-10 py-6 lg:py-8 flex justify-between items-center border-b border-[#2B3139] bg-[#0B0E11]/80 backdrop-blur-md sticky top-0">
           <div className="flex items-center gap-4">
-            <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 bg-[#1E2329] border border-[#2B3139] rounded-xl text-[#FCD535] active:scale-95 transition-all"><Menu size={22} /></button>
+            <button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2 bg-[#1E2329] border border-[#2B3139] rounded-xl text-[#FCD535] active:scale-95 transition-all"><Menu size={22}/></button>
             <div>
               <h1 className="text-xl lg:text-3xl font-black tracking-tighter italic uppercase text-white leading-none">{t.dashboard.sidebar.pnl_analysis}</h1>
               <p className="hidden sm:flex items-center gap-2 text-[#848E9C] text-[10px] uppercase tracking-[0.2em] mt-2">
@@ -362,6 +309,7 @@ export default function PnLAnalysisPage() {
                             <td className="p-4 lg:p-8">
                                <div className="flex items-center gap-3 lg:gap-4">
                                   <div className="hidden sm:flex w-8 lg:w-10 h-8 lg:h-10 rounded-lg lg:rounded-xl bg-[#0B0E11] border border-[#2B3139] items-center justify-center text-[#848E9C] group-hover:border-[#FCD535]/30 transition-colors">
+                                     {/* Trophy sekarang sudah diimport dan akan tampil */}
                                      <Trophy size={16} />
                                   </div>
                                   <div className="flex flex-col min-w-0">
@@ -395,14 +343,6 @@ export default function PnLAnalysisPage() {
   );
 }
 
-function SidebarLink({ Icon, label, active = false, onClick }: any) {
-  return (
-    <div onClick={onClick} className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 font-black cursor-pointer text-xs uppercase tracking-widest ${active ? 'bg-[#2B3139] text-[#FCD535] shadow-lg border border-[#FCD535]/10' : 'text-[#848E9C] hover:bg-[#2B3139] hover:text-[#EAECEF]'}`}>
-      <Icon size={18} /> <span>{label}</span>
-    </div>
-  );
-}
-
 function StatCard({ label, value, subValue, icon, status, accent }: any) {
   const accentColors: any = {
     gold: "text-[#FCD535] border-[#FCD535]/20",
@@ -416,7 +356,7 @@ function StatCard({ label, value, subValue, icon, status, accent }: any) {
     <div className="bg-[#1E2329] p-4 sm:p-6 lg:p-8 rounded-[1.5rem] lg:rounded-[2.5rem] border border-[#2B3139] shadow-2xl relative overflow-hidden group hover:border-[#FCD535]/30 transition-all">
       <div className="flex justify-between items-start mb-3 lg:mb-6">
         <div className="text-[8px] lg:text-[9px] font-black text-[#474D57] uppercase tracking-[0.2em]">{label}</div>
-        <div className="hidden sm:flex p-2.5 bg-[#0B0E11] rounded-xl border border-[#2B3139] text-[#848E9C] group-hover:text-[#FCD535] transition-all">{icon}</div>
+        <div className="hidden sm:flex p-2.5 bg-[#0B0E11] rounded-xl border border-[#2B3139] text-[#848E9C] group-hover:text-[#FCD535] transition-all shadow-inner">{icon}</div>
       </div>
       <div className="flex items-baseline gap-1 lg:gap-2 mb-2 lg:mb-4">
         <span className="text-lg sm:text-2xl lg:text-4xl font-black text-white italic tracking-tighter leading-none">{value}</span>

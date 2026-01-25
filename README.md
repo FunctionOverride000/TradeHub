@@ -1,85 +1,182 @@
-🏆 TradeHub: Proof of Achievement
+TradeHub - Solana Competitive Trading Platform 🚀
 
-Platform Kompetisi Trading Terdesentralisasi Pertama di Indonesia (Jaringan Solana)
+TradeHub adalah platform kompetisi trading terdesentralisasi (DeFi) di jaringan Solana. Platform ini memungkinkan pengguna untuk membuat, mengikuti, dan memenangkan turnamen trading secara transparan dengan validasi data on-chain (Proof-of-Skill).
 
-🌍 Apa itu TradeHub?
+📌 Status Proyek (Current State)
 
-TradeHub adalah ekosistem kompetisi trading revolusioner yang dibangun di atas blockchain Solana. Berbeda dengan kompetisi trading konvensional yang seringkali kurang transparan atau hanya berupa simulasi (akun demo), TradeHub memvalidasi setiap profit dan performa trader secara On-Chain (langsung dari blockchain).
+Terakhir Diperbarui: 25 Januari 2026
+Fase: Beta / Pre-Launch (Live Ready)
+Core Logic: ✅ Selesai (100% Automated)
 
-Kami memperkenalkan standar baru bernama "Proof of Achievement": sebuah sistem reputasi yang tidak dapat dimanipulasi, di mana setiap kemenangan dan statistik trader diverifikasi secara matematis oleh smart contract dan validator independen.
+🌟 Apa yang Sudah Kita Kerjakan?
 
-🛡️ Mengapa TradeHub Berbeda? (Teknologi Anti-Cheat)
+Berikut adalah rincian modul yang telah selesai dibangun dan terintegrasi:
 
-Masalah terbesar dalam kompetisi trading online adalah manipulasi: peserta melakukan "top-up" atau deposit dana di tengah lomba agar saldo terlihat naik seolah-olah profit.
+1. Sistem Autentikasi & Keamanan
 
-TradeHub memecahkan masalah ini dengan teknologi Deep Transaction Analysis:
+Supabase Auth: Login via Email/Password, Google, dan GitHub.
 
-Pemisahan Modal vs Profit: Sistem kami (Deposit Watcher) memantau dompet peserta 24/7. Jika terdeteksi adanya dana masuk dari luar (transfer/deposit), sistem akan menandainya dan tidak menghitungnya sebagai profit.
+MFA (Multi-Factor Authentication): Integrasi TOTP (Google Authenticator) untuk keamanan akun tingkat tinggi (Level AAL2).
 
-Verifikasi ROI Murni: Peringkat dihitung berdasarkan persentase keuntungan (ROI) murni dari aktivitas trading, bukan dari seberapa banyak uang yang dimiliki peserta.
+Delete Account: Fitur penghapusan akun mandiri dengan validasi MFA/Password yang aman.
 
-Transparansi Total: Siapa pun dapat memverifikasi riwayat transaksi pemenang melalui Solana Explorer. Tidak ada data yang disembunyikan di database tertutup.
+2. Manajemen Kompetisi (Arena)
 
-⚔️ Fitur Utama Platform
+Pembuatan Lomba (/buat-lomba):
 
-1. Arena Kompetisi (Trading Arenas)
+Creator bisa membuat lomba Gratis atau Berbayar.
 
-Ini adalah jantung dari TradeHub. Pengguna dapat:
+Fitur Premium: Private Room (Password), Whitelist (Undangan khusus).
 
-Bergabung dalam Turnamen: Pilih arena berdasarkan modal awal, durasi, atau hadiah.
+Ekonomi Baru: Creator wajib mendepositkan Reward Pool di awal untuk menjamin hadiah tersedia.
 
-Membuat Arena Sendiri: Kreator atau komunitas dapat membuat lomba trading mereka sendiri dengan aturan khusus (misal: "Minimal saldo 1 SOL", "Biaya masuk 0.1 SOL").
+Revenue Share: Skema bagi hasil 50% Platform / 50% Creator dari penjualan tiket.
 
-Hadiah Otomatis: Smart contract memastikan hadiah didistribusikan secara adil dan otomatis kepada pemenang begitu kompetisi berakhir.
+Pendaftaran Peserta:
 
-2. Dashboard Trader Profesional
+Validasi saldo wallet minimum sebelum join.
 
-Setiap pengguna mendapatkan dashboard canggih untuk menganalisis kinerja mereka:
+Pembayaran tiket masuk (Entry Fee) via Phantom Wallet.
 
-Analisis PnL (Profit & Loss): Grafik performa harian.
+Cek duplikasi pendaftaran.
 
-Win Rate & Statistik: Melacak seberapa sering trader profit vs rugi.
+3. Dashboard & Monitoring
 
-Dompet Terintegrasi: Manajemen aset kripto yang aman dan non-kustodial (dana tetap di dompet pribadi pengguna, bukan di platform).
+User Dashboard (/dashboard):
 
-3. Hall of Fame & Reputasi Global
+Statistik personal (Win Rate, ROI, Total Profit).
 
-Membangun karir sebagai trader profesional dimulai di sini:
+Gamifikasi: Tampilan Level, XP Bar, dan Kode Referral.
 
-Sistem Peringkat: Dari "Novice" hingga "Grandmaster" dan "Elite Trader".
+Manajemen Wallet & Keamanan.
 
-Sertifikat On-Chain: Prestasi juara dicatat secara permanen di blockchain sebagai bukti keahlian yang valid.
+Admin Dashboard (/admin/dashboard):
 
-Profil Publik: Halaman profil yang bisa dibagikan ke media sosial sebagai portofolio trading yang terverifikasi.
+Monitoring status distribusi hadiah (Pending/Distributed).
 
-4. Keamanan Tingkat Lanjut
+Audit log aktivitas platform.
 
-Tanpa KYC Rumit: Cukup hubungkan dompet Solana (Phantom, Solflare, dll).
+Fitur edit arena & boost arena.
 
-2FA (Two-Factor Authentication): Fitur keamanan tambahan untuk melindungi pengaturan akun sensitif.
+Hall of Fame (/hall-of-fame):
 
-Penghapusan Data Mandiri: Kontrol penuh atas data privasi pengguna.
+Papan peringkat global Top 3 Trader.
 
-🚀 Cara Kerja (User Journey)
+Informasi hadiah musiman (Quarterly Grand Prize).
 
-Connect Wallet: Pengguna menghubungkan dompet Solana mereka.
+Profil Publik (/profile/[userId]):
 
-Pilih Arena: Pengguna mendaftar ke kompetisi yang sedang berlangsung atau akan datang.
+Halaman pamer reputasi dengan statistik on-chain yang valid.
 
-Mulai Trading: Pengguna melakukan trading aset kripto di DEX (Decentralized Exchange) favorit mereka (seperti Jupiter atau Raydium) menggunakan dompet yang terdaftar.
+Tombol "Share Reputation" dengan link referral otomatis.
 
-Pelacakan Otomatis: TradeHub secara otomatis membaca data blockchain untuk menghitung skor peserta secara real-time.
+4. Otomatisasi & Backend (Edge Functions)
 
-Klaim Kemenangan: Pemenang mendapatkan reputasi dan hadiah pool di akhir periode.
+Ini adalah "otak" dari sistem TradeHub yang berjalan otomatis di server Supabase:
 
-🎯 Visi Kami
+Nama Fungsi
 
-Menciptakan lingkungan trading yang jujur, transparan, dan kompetitif. Di TradeHub, uang tidak bisa membeli kemenangan—hanya skill yang menentukan posisi Anda di puncak.
+Deskripsi & Status
 
-<<<<<<< HEAD
-"Don't trust, verify. Welcome to the future of trading competitions."
-=======
-"Don't trust, verify. Welcome to the future of trading competitions."
->>>>>>> 41f9a3a7cc7f858676ace67f73c3713693066d6f
+distribute-rewards
 
-jasno
+CRITICAL. Berjalan tiap jam. Mengecek lomba selesai -> Hitung pemenang -> Kirim SOL otomatis -> Hitung & Bagi XP ke Creator/User.
+
+distribute-quarterly-rewards
+
+SEASONAL. Berjalan tiap 3 bulan (Q1-Q4). Menghitung Top 3 Global Profit dan mengirim hadiah besar (Revenue Share 20% Platform).
+
+helius-webhook
+
+Menerima data transaksi real-time dari blockchain Solana (via Helius) untuk update saldo peserta.
+
+deposit-watcher
+
+Memantau deposit eksternal untuk sistem Anti-Cheat (Clean ROI).
+
+5. Sistem Gamifikasi & Ekonomi (Terbaru)
+
+XP System:
+
+Creator: Dapat XP dari membuat lomba + bonus besar dari jumlah peserta (Viral Loop).
+
+User: Dapat XP dari Join, Profit, dan Juara.
+
+Leveling: Rank (Rookie -> Grandmaster) berdasarkan XP. Level tinggi memberikan Diskon Fee Platform.
+
+Referral: Setiap user punya kode unik. Mengajak teman memberikan bonus XP.
+
+🏗️ Struktur Database
+
+Tabel-tabel utama yang menopang sistem ini:
+
+auth.users: Data user bawaan Supabase.
+
+public.rooms: Data kompetisi (judul, reward, status distribusi, wallet creator).
+
+public.participants: Data peserta (saldo awal, saldo akhir, profit, status).
+
+public.deposit_logs: Log deposit eksternal untuk deteksi kecurangan.
+
+public.user_stats (BARU): Menyimpan Level, XP, Kode Referral, dan Total Referral.
+
+public.xp_logs (BARU): Riwayat penambahan XP untuk transparansi.
+
+📝 Apa yang Perlu Dilanjutkan / Ditambahkan?
+
+Jika Anda ingin melanjutkan coding, inilah Action Items berikutnya:
+
+Prioritas Tinggi (Wajib Cek)
+
+Validasi Webhook Helius:
+
+Pastikan file supabase/functions/helius-webhook/index.ts sudah dikonfigurasi dengan Webhook ID yang benar dari dashboard Helius.dev Anda.
+
+Tes apakah transaksi swap di Raydium/Jupiter benar-benar terdeteksi dan mengupdate kolom current_balance di tabel participants.
+
+Cron Job Scheduling:
+
+Pastikan Anda sudah menjalankan perintah SQL pg_cron di dashboard Supabase untuk memicu fungsi distribute-rewards setiap jam.
+
+Fitur Tambahan (Opsional / Masa Depan)
+
+Notifikasi Pengguna:
+
+Kirim email atau notifikasi Telegram saat user memenangkan lomba atau saat hadiah cair.
+
+Leaderboard Referral:
+
+Membuat halaman khusus "Top Referrer" untuk memacu semangat user mengajak teman.
+
+Halaman Klaim Bonus:
+
+Saat ini Bonus Creator (1 SOL saat level Visionary) dikirim otomatis. Bisa diubah menjadi sistem "Claim Manual" agar user merasa lebih dihargai saat menekan tombol claim.
+
+Support Token Lain (SPL Token):
+
+Saat ini sistem fokus pada SOL. Masa depan bisa support USDC atau BONK sebagai mata uang taruhan.
+
+🛠️ Cara Melanjutkan Development
+
+Install Dependencies:
+
+npm install
+
+
+Jalankan Server Lokal:
+
+npm run dev
+
+
+Deploy Edge Functions (Jika ada perubahan backend):
+
+npx supabase functions deploy distribute-rewards --no-verify-jwt
+npx supabase functions deploy distribute-quarterly-rewards --no-verify-jwt
+
+
+Cek Database: Gunakan Table Editor di Dashboard Supabase untuk memantau data yang masuk.
+
+Catatan Pengembang:
+Sistem ini sudah dirancang Self-Sustaining. Pendapatan platform (50% dari tiket) sudah lebih dari cukup untuk menutupi biaya operasional (gas fee robot) dan hadiah musiman (20% dari profit). Anda tidak perlu "nombok" selama ada aktivitas di platform.
+
+Selamat mengembangkan TradeHub! 🚀

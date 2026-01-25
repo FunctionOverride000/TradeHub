@@ -2,51 +2,39 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  LayoutDashboard, 
   Trophy, 
   User, 
-  Settings as SettingsIcon, 
-  LogOut, 
-  CheckCircle, 
-  Clock, 
-  Download, 
-  Share2, 
-  Award, 
   Loader2, 
   Medal, 
-  TrendingUp, 
   BarChart2, 
-  Wallet, 
-  Globe,
-  AlertTriangle,
-  Activity,
-  ArrowUpRight,
-  PieChart,
+  ArrowUpRight, 
+  Menu, 
+  ShieldCheck, 
+  ShieldAlert, 
+  Crown, 
+  CheckCircle,
+  Zap,
+  Star,
   Copy,
   Check,
-  Twitter,
-  ExternalLink,
-  Menu,
-  X,
-  ShieldCheck,
-  ShieldAlert,
-  Star,
-  BookOpen
+  Users
 } from 'lucide-react';
 
-/**
- * MENGGUNAKAN ESM CDN:
- * Menjamin stabilitas library di lingkungan pratinjau.
- */
 import { createClient } from '@supabase/supabase-js';
 import * as web3 from '@solana/web3.js';
 import { useLanguage } from '../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
 
+// --- IMPORT KOMPONEN BARU ---
+import UserSidebar from '../../components/dashboard/UserSidebar';
+import UserStatCard from '../../components/dashboard/UserStatCard';
+
 // --- KONFIGURASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey) 
+  : null;
 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com';
 
@@ -63,18 +51,29 @@ interface ParticipantData {
   rooms?: {
     title: string;
     is_premium: boolean;
+    distribution_status?: string;
+    winners_info?: any[];
   };
+}
+
+interface UserStats {
+  user_level: number;
+  user_xp: number;
+  referral_code: string;
+  total_referrals: number;
 }
 
 export default function App() {
   const { t } = useLanguage();
   const [user, setUser] = useState<any>(null);
   const [registrations, setRegistrations] = useState<ParticipantData[]>([]);
+  const [stats, setStats] = useState<UserStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [copyId, setCopyId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [copiedRef, setCopiedRef] = useState(false);
   
   const subscriptionsRef = useRef<number[]>([]);
 
@@ -84,22 +83,25 @@ export default function App() {
 
   // 1. Sinkronisasi Sesi Auth
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const initAuth = async () => {
+      if (!supabase) return;
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session) safeNavigate('/auth');
       else setUser(session.user);
-    });
+    };
+    initAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) safeNavigate('/auth');
-      else setUser(session.user);
-    });
-
-    return () => subscription.unsubscribe();
+    if (supabase) {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          if (!session) safeNavigate('/auth');
+          else setUser(session.user);
+        });
+        return () => subscription.unsubscribe();
+    }
   }, []);
 
   /**
-   * OPTIMASI WEBSOCKET & LOGIKA ANTI-CHEAT:
-   * ROI dihitung murni: (Current - Deposit - Initial) / Initial.
+   * OPTIMASI WEBSOCKET & LOGIKA ANTI-CHEAT
    */
   const setupRealTimeSync = (list: ParticipantData[]) => {
     if (!SOLANA_RPC || list.length === 0) return;
@@ -136,21 +138,22 @@ export default function App() {
     });
   };
 
-  // 2. Fetch Data Trading
+  // 2. Fetch Data Trading & Stats
   useEffect(() => {
-    if (!user) return;
+    if (!user || !supabase) return;
     const fetchData = async () => {
       try {
         setIsSyncing(true);
-        const { data, error } = await supabase
+        // A. Fetch Participants
+        const { data: participantsData, error: partError } = await supabase
           .from('participants')
-          .select(`*, rooms (title, is_premium)`)
+          .select(`*, rooms (title, is_premium, distribution_status, winners_info)`)
           .eq('user_id', user.id)
           .order('joined_at', { ascending: false });
 
-        if (error) throw error;
+        if (partError) throw partError;
         
-        const baseEnriched = (data || []).map((item: any) => {
+        const baseEnriched = (participantsData || []).map((item: any) => {
           const adjustedCurrent = item.current_balance - (item.total_deposit || 0);
           return {
             ...item,
@@ -160,8 +163,20 @@ export default function App() {
 
         setRegistrations(baseEnriched);
         setupRealTimeSync(baseEnriched);
+
+        // B. Fetch User Stats (XP, Level, Referral)
+        const { data: statsData, error: statsError } = await supabase
+          .from('user_stats')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+        
+        if (!statsError && statsData) {
+            setStats(statsData);
+        }
+
       } catch (err: any) {
-        setErrorMsg("Gagal memuat rekam jejak.");
+        setErrorMsg("Gagal memuat data.");
       } finally {
         setIsLoading(false);
         setIsSyncing(false);
@@ -180,23 +195,16 @@ export default function App() {
   }, [user]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    if (supabase) await supabase.auth.signOut();
     safeNavigate('/auth');
   };
 
-  const handleShareAchievement = async (item: ParticipantData) => {
-    const profitVal = item.profit || 0;
-    const arenaTitle = item.rooms?.title || "Trading Tournament";
-    const arenaUrl = `${window.location.origin}/lomba/${item.room_id}`;
-    const shareMessage = `Saya mencatat ROI Murni ${profitVal >= 0 ? '+' : ''}${profitVal.toFixed(2)}% di ${arenaTitle} via TradeHub! (Anti-Cheat Verified) 🚀 ${arenaUrl}`;
-    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMessage)}`, '_blank');
-  };
-
-  const handleCopyLink = (item: ParticipantData) => {
-    const arenaUrl = `${window.location.origin}/lomba/${item.room_id}`;
-    navigator.clipboard.writeText(arenaUrl);
-    setCopyId(item.id);
-    setTimeout(() => setCopyId(null), 2000);
+  const copyReferral = () => {
+    if (stats?.referral_code) {
+        navigator.clipboard.writeText(stats.referral_code);
+        setCopiedRef(true);
+        setTimeout(() => setCopiedRef(false), 2000);
+    }
   };
 
   // Statistik Kumulatif
@@ -205,14 +213,37 @@ export default function App() {
     ? ((achievements.filter(r => (r.profit || 0) > 0).length / achievements.length) * 100).toFixed(1) 
     : "0";
 
+  // Level Logic untuk Tier Badge
   const getRankTier = () => {
-    const wins = achievements.length;
-    if (wins >= 50) return "Grandmaster";
-    if (wins >= 20) return "Diamond";
-    if (wins >= 10) return "Gold";
-    if (wins >= 5) return "Silver";
-    return "Bronze";
+    const level = stats?.user_level || 1;
+    if (level >= 50) return { label: "Grandmaster", color: "text-[#FF4500]" };
+    if (level >= 20) return { label: "Diamond", color: "text-[#3b82f6]" };
+    if (level >= 10) return { label: "Gold", color: "text-[#FCD535]" };
+    if (level >= 5) return { label: "Silver", color: "text-[#C0C0C0]" };
+    return { label: "Bronze", color: "text-[#CD7F32]" };
   };
+  const rank = getRankTier();
+
+  const getWinnerStatus = (item: ParticipantData) => {
+    if (!item.rooms?.winners_info) return null;
+    const winRecord = item.rooms.winners_info.find((w: any) => w.wallet === item.wallet_address);
+    if (winRecord) {
+       return { rank: winRecord.rank, amount: winRecord.amount };
+    }
+    return null;
+  };
+
+  // Kalkulasi XP Progress
+  const currentLevel = stats?.user_level || 1;
+  const currentXp = stats?.user_xp || 0;
+  // Rumus Level: Level = Floor(Sqrt(XP / 100)) + 1
+  // Maka XP untuk mencapai level saat ini = 100 * (Level-1)^2
+  const xpForCurrentLevel = 100 * Math.pow(currentLevel - 1, 2);
+  // XP untuk mencapai level berikutnya = 100 * (Level)^2
+  const xpForNextLevel = 100 * Math.pow(currentLevel, 2);
+  
+  // Persentase progress bar
+  const progressPercent = Math.min(100, Math.max(0, ((currentXp - xpForCurrentLevel) / (xpForNextLevel - xpForCurrentLevel)) * 100));
 
   if (isLoading) return <div className="min-h-screen flex flex-col items-center justify-center bg-[#0B0E11]"><Loader2 className="w-12 h-12 text-[#FCD535] animate-spin mb-4" /></div>;
 
@@ -220,34 +251,12 @@ export default function App() {
     <div className="flex min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans selection:bg-[#FCD535]/30">
       
       {/* --- SIDEBAR --- */}
-      <aside className={`fixed inset-y-0 left-0 z-[60] w-72 bg-[#181A20] border-r border-[#2B3139] flex flex-col transition-transform duration-300 transform lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} shadow-2xl lg:shadow-none`}>
-        <div className="p-8 border-b border-[#2B3139] flex justify-between items-center">
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => safeNavigate('/')}>
-            <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform"><TrendingUp className="text-black w-6 h-6" /></div>
-            <span className="font-bold text-xl tracking-tight text-[#EAECEF]">TradeHub</span>
-          </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-[#848E9C] hover:text-white transition-colors"><X size={20} /></button>
-        </div>
-        <nav className="flex-1 p-6 space-y-2">
-          <SidebarLink Icon={LayoutDashboard} label={t.dashboard.sidebar.track_record} active />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/pnl')} Icon={BarChart2} label={t.dashboard.sidebar.pnl_analysis} />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/certificates')} Icon={Award} label={t.dashboard.sidebar.certificates} />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/wallet')} Icon={Wallet} label={t.dashboard.sidebar.wallet} />
-          {/* MENU TAMBAHAN DENGAN IKON KONSISTEN */}
-          <div className="pt-6 border-t border-[#2B3139]/50 mt-4 space-y-2">
-             <SidebarLink onClick={() => safeNavigate('/hall-of-fame')} Icon={Star} label={t.dashboard.sidebar.hall_of_fame} />
-             <SidebarLink onClick={() => safeNavigate('/handbook')} Icon={BookOpen} label={t.dashboard.sidebar.handbook} />
-             <SidebarLink onClick={() => safeNavigate('/dashboard/settings')} Icon={SettingsIcon} label={t.dashboard.sidebar.settings} />
-          </div>
-        </nav>
-        <div className="p-6 border-t border-[#2B3139]">
-          <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 text-[#848E9C] hover:text-[#EAECEF] hover:bg-[#2B3139] rounded-xl transition font-medium text-sm">
-            <LogOut size={18} /> <span>{t.dashboard.sidebar.logout}</span>
-          </button>
-        </div>
-      </aside>
-
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[55] lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
+      <UserSidebar 
+        isSidebarOpen={isSidebarOpen} 
+        setIsSidebarOpen={setIsSidebarOpen} 
+        safeNavigate={safeNavigate}
+        handleLogout={handleLogout}
+      />
 
       <main className="flex-1 flex flex-col lg:ml-72 min-w-0 bg-[#0B0E11] relative overflow-y-auto">
         <div className="absolute inset-0 bg-[linear-gradient(rgba(30,33,38,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,33,38,0.5)_1px,transparent_1px)] bg-[size:40px_40px] opacity:10 pointer-events-none"></div>
@@ -259,7 +268,6 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
             <LanguageSwitcher />
-            {/* TOMBOL KE PROFIL PUBLIK DENGAN IKON */}
             <button 
               onClick={() => safeNavigate(`/profile/${user?.id}`)}
               className="flex items-center gap-2 px-4 py-2 bg-[#1E2329] border border-[#2B3139] rounded-xl text-[10px] font-black uppercase tracking-widest text-[#FCD535] hover:bg-[#2B3139] transition-all shadow-lg active:scale-95"
@@ -275,11 +283,71 @@ export default function App() {
 
         <div className="p-6 lg:p-10 max-w-7xl mx-auto relative z-10 pb-24 text-center sm:text-left">
           
+          {/* --- XP & LEVEL SECTION (BARU) --- */}
+          {stats && (
+            <div className="bg-gradient-to-r from-[#1E2329] to-[#0B0E11] rounded-[2.5rem] p-8 mb-10 border border-[#2B3139] shadow-2xl relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/5 rounded-full blur-[80px] pointer-events-none"></div>
+               
+               <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
+                  {/* Badge Level */}
+                  <div className="relative">
+                     <div className="w-24 h-24 rounded-full border-4 border-[#2B3139] flex items-center justify-center bg-[#0B0E11] text-[#FCD535] shadow-xl">
+                        <Zap size={40} fill="currentColor" />
+                     </div>
+                     <div className="absolute -bottom-2 -right-2 bg-[#FCD535] text-black text-[10px] font-black px-3 py-1 rounded-full shadow-lg">
+                        LVL {currentLevel}
+                     </div>
+                  </div>
+
+                  <div className="flex-1 w-full space-y-4">
+                     <div className="flex justify-between items-end">
+                        <div>
+                           <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">{rank.label}</h2>
+                           <p className="text-[#848E9C] text-xs font-medium">Next Level: {xpForNextLevel} XP</p>
+                        </div>
+                        <div className="text-right">
+                           <span className="text-[#FCD535] font-black text-xl">{currentXp} XP</span>
+                           <span className="text-[#474D57] text-xs font-bold block">TOTAL EXPERIENCE</span>
+                        </div>
+                     </div>
+                     
+                     {/* Progress Bar */}
+                     <div className="h-4 w-full bg-[#0B0E11] rounded-full overflow-hidden border border-[#2B3139]">
+                        <div 
+                          className="h-full bg-gradient-to-r from-[#FCD535] to-orange-500 transition-all duration-1000 ease-out relative"
+                          style={{ width: `${progressPercent}%` }}
+                        >
+                           <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* Referral Card */}
+                  <div className="w-full md:w-auto flex flex-col gap-3">
+                      <div className="bg-[#0B0E11] p-4 rounded-2xl border border-[#2B3139] text-center min-w-[160px]">
+                         <p className="text-[9px] text-[#474D57] font-black uppercase tracking-widest mb-1">REFERRAL CODE</p>
+                         <div 
+                           onClick={copyReferral}
+                           className="flex items-center justify-center gap-2 cursor-pointer hover:text-[#FCD535] transition-colors text-[#EAECEF] font-mono font-bold text-sm"
+                         >
+                            {stats.referral_code}
+                            {copiedRef ? <Check size={14} className="text-[#0ECB81]"/> : <Copy size={14}/>}
+                         </div>
+                      </div>
+                      <div className="text-[9px] text-[#848E9C] text-center">
+                         Total Referrals: <span className="text-white font-bold">{stats.total_referrals}</span>
+                      </div>
+                  </div>
+               </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-8 mb-12">
-            <StatCard label={t.dashboard.stats.tournaments} value={achievements.length} icon={<Trophy size={20} className="text-[#FCD535]" />} trend={t.dashboard.stats.total_wins} trendUp={true} />
-            <StatCard label={t.dashboard.stats.win_rate} value={`${winRate}%`} icon={<BarChart2 size={20} className="text-[#0ECB81]" />} trend={t.dashboard.stats.accuracy} trendUp={true} />
-            <StatCard label={t.dashboard.stats.rank_tier} value={getRankTier()} icon={<Medal size={20} className="text-[#70C1B3]" />} trend={t.dashboard.stats.current} trendUp={true} />
-            <StatCard label={t.dashboard.stats.security} value="Elite" icon={<ShieldCheck size={20} className="text-[#3b82f6]" />} trend={t.dashboard.stats.anti_deposit} trendUp={true} />
+            <UserStatCard label={t.dashboard.stats.tournaments} value={achievements.length} icon={<Trophy size={20} className="text-[#FCD535]" />} trend={t.dashboard.stats.total_wins} trendUp={true} />
+            <UserStatCard label={t.dashboard.stats.win_rate} value={`${winRate}%`} icon={<BarChart2 size={20} className="text-[#0ECB81]" />} trend={t.dashboard.stats.accuracy} trendUp={true} />
+            <UserStatCard label={t.dashboard.stats.rank_tier} value={rank.label} icon={<Medal size={20} className={rank.color} />} trend={t.dashboard.stats.current} trendUp={true} />
+            {/* Menampilkan total XP di kartu stats juga jika data tersedia */}
+            <UserStatCard label="Total XP" value={stats?.user_xp || 0} icon={<Star size={20} className="text-[#3b82f6]" />} trend="Career Points" trendUp={true} />
           </div>
 
           <div className="space-y-8">
@@ -288,24 +356,44 @@ export default function App() {
             {registrations.map((item) => {
               const profitVal = item.profit || 0;
               const isAdjusted = (item.total_deposit || 0) > 0;
+              const winData = getWinnerStatus(item);
+
               return (
-                <div key={item.id} className="bg-[#1E2329] border border-[#2B3139] hover:border-[#FCD535]/30 rounded-[2.5rem] p-6 lg:p-10 transition-all duration-300 group flex flex-col md:flex-row items-center gap-8 shadow-2xl relative overflow-hidden">
-                  <div className="w-20 h-20 bg-[#0B0E11] rounded-3xl flex items-center justify-center border border-[#474D57] text-[#FCD535] shadow-inner shrink-0"><Trophy size={32} /></div>
+                <div key={item.id} className={`bg-[#1E2329] border ${winData ? 'border-[#FCD535]/50 shadow-[0_0_20px_rgba(252,213,53,0.1)]' : 'border-[#2B3139]'} hover:border-[#FCD535]/30 rounded-[2.5rem] p-6 lg:p-10 transition-all duration-300 group flex flex-col md:flex-row items-center gap-8 shadow-2xl relative overflow-hidden`}>
+                  <div className={`w-20 h-20 rounded-3xl flex items-center justify-center border shadow-inner shrink-0 ${winData ? 'bg-[#FCD535] text-black border-[#FCD535]' : 'bg-[#0B0E11] border-[#474D57] text-[#FCD535]'}`}>
+                     {winData ? <Crown size={32} fill="currentColor"/> : <Trophy size={32} />}
+                  </div>
+                  
                   <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-4 leading-none">{item.rooms?.title}</h3>
+                    <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-2 leading-none flex items-center justify-center md:justify-start gap-3">
+                       {item.rooms?.title}
+                       {winData && (
+                          <span className="bg-[#FCD535] text-black text-[9px] px-2 py-1 rounded-md uppercase tracking-widest font-black flex items-center gap-1">
+                             Rank #{winData.rank}
+                          </span>
+                       )}
+                    </h3>
+                    
+                    {winData && (
+                       <p className="text-[#FCD535] text-xs font-bold mb-4 flex items-center justify-center md:justify-start gap-2">
+                          <CheckCircle size={14} /> Reward Paid: {winData.amount} SOL
+                       </p>
+                    )}
+
                     <div className="flex flex-wrap justify-center md:justify-start gap-3">
                       <span className="px-3 py-1 rounded-lg bg-[#0ECB81]/10 text-[#0ECB81] text-[9px] font-black uppercase border border-[#0ECB81]/20 tracking-widest">{t.dashboard.records.verified_ledger}</span>
                       {isAdjusted && <span className="px-3 py-1 rounded-lg bg-yellow-500/10 text-yellow-500 text-[9px] font-black uppercase border border-yellow-500/20 flex items-center gap-1"><ShieldAlert size={10}/> {t.dashboard.records.anti_cheat_filtered}</span>}
                     </div>
                   </div>
+                  
                   <div className="flex items-center gap-12 border-t md:border-t-0 md:border-l border-[#2B3139] pt-6 md:pt-0 md:pl-12 w-full md:w-auto justify-center">
-                     <div className="text-center">
-                        <p className="text-[9px] font-black text-[#474D57] uppercase tracking-widest mb-1 italic">{t.dashboard.records.clean_roi}</p>
-                        <p className={`text-4xl font-black italic tracking-tighter ${profitVal >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
-                           {profitVal >= 0 ? '+' : ''}{profitVal.toFixed(2)}%
-                        </p>
-                     </div>
-                     <button onClick={() => safeNavigate(`/lomba/${item.room_id}`)} className="p-4 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90"><ArrowUpRight size={20} /></button>
+                      <div className="text-center">
+                         <p className="text-[9px] font-black text-[#474D57] uppercase tracking-widest mb-1 italic">{t.dashboard.records.clean_roi}</p>
+                         <p className={`text-4xl font-black italic tracking-tighter ${profitVal >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                            {profitVal >= 0 ? '+' : ''}{profitVal.toFixed(2)}%
+                         </p>
+                      </div>
+                      <button onClick={() => safeNavigate(`/lomba/${item.room_id}`)} className="p-4 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90"><ArrowUpRight size={20} /></button>
                   </div>
                 </div>
               );
@@ -313,29 +401,6 @@ export default function App() {
           </div>
         </div>
       </main>
-    </div>
-  );
-}
-
-function SidebarLink({ Icon, label, active = false, onClick }: any) {
-  return (
-    <div onClick={onClick} className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 font-black cursor-pointer text-xs uppercase tracking-widest ${active ? 'bg-[#2B3139] text-[#FCD535] shadow-lg border border-[#FCD535]/10' : 'text-[#848E9C] hover:bg-[#2B3139] hover:text-[#EAECEF]'}`}>
-      <Icon size={18} /> <span>{label}</span>
-    </div>
-  );
-}
-
-function StatCard({ label, value, icon, trend, trendUp }: any) {
-  return (
-    <div className="bg-[#1E2329] p-6 lg:p-8 rounded-[2.5rem] border border-[#2B3139] shadow-2xl relative overflow-hidden group hover:border-[#FCD535]/30 transition-all">
-      <div className="flex justify-between items-start mb-6">
-        <div className="text-[#848E9C] text-[9px] font-black uppercase tracking-[0.2em]">{label}</div>
-        <div className="p-2.5 bg-[#0B0E11] rounded-xl border border-[#2B3139] text-[#848E9C] group-hover:text-[#FCD535] transition-all shadow-inner">{icon}</div>
-      </div>
-      <div className="flex items-end gap-3 justify-center sm:justify-start">
-        <span className="text-2xl lg:text-4xl font-black text-white italic tracking-tighter leading-none uppercase">{value}</span>
-        <div className={`text-[8px] font-black mb-1 px-2 py-0.5 rounded-full border ${trendUp ? 'text-[#0ECB81] bg-[#0ECB81]/10 border-[#0ECB81]/20' : 'text-[#F6465D] bg-[#F6465D]/10 border-[#F6465D]/20'}`}>{trend}</div>
-      </div>
     </div>
   );
 }

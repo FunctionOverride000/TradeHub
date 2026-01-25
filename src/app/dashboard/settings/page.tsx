@@ -2,15 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  LayoutDashboard, 
   User, 
   Settings as SettingsIcon, 
-  LogOut, 
-  CheckCircle, 
-  Award, 
   Loader2, 
-  BarChart2, 
-  Wallet, 
   ShieldCheck, 
   Bell, 
   Lock, 
@@ -21,20 +15,20 @@ import {
   Eye, 
   EyeOff, 
   KeyRound, 
-  QrCode,
   X,
   Menu,
   Shield,
-  Star,
-  BookOpen,
   Trash2,
   Smartphone,
-  Download // Import icon Download
+  Download
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
-import { useLanguage } from '../../../lib/LanguageContext';
-import { LanguageSwitcher } from '../../../lib/LanguageSwitcher';
+import { useLanguage } from '@/lib/LanguageContext';
+import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
+
+// --- IMPORT COMPONENT BARU ---
+import UserSidebar from '@/components/dashboard/UserSidebar';
 
 // --- INISIALISASI SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -399,39 +393,12 @@ export default function SettingsPage() {
     <div className="flex min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans selection:bg-[#FCD535]/30 relative overflow-hidden">
       
       {/* --- SIDEBAR --- */}
-      <aside className={`fixed inset-y-0 left-0 z-[70] w-72 bg-[#181A20] border-r border-[#2B3139] flex flex-col transition-transform duration-300 transform lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} shadow-2xl lg:shadow-none`}>
-        <div className="p-8 border-b border-[#2B3139] flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => safeNavigate('/')}>
-            <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg shadow-[#FCD535]/10 group-hover:scale-110 transition-transform">
-              <Star className="text-black w-6 h-6" fill="black" />
-            </div>
-            <span className="font-black text-xl tracking-tighter text-[#EAECEF]">TradeHub</span>
-          </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-[#848E9C] hover:text-white transition-colors">
-            <X size={22} />
-          </button>
-        </div>
-        <nav className="flex-1 p-6 space-y-2">
-          <SidebarLink onClick={() => safeNavigate('/dashboard')} Icon={LayoutDashboard} label={t.dashboard.sidebar.track_record} />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/pnl')} Icon={BarChart2} label={t.dashboard.sidebar.pnl_analysis} />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/certificates')} Icon={Award} label={t.dashboard.sidebar.certificates} />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/wallet')} Icon={Wallet} label={t.dashboard.sidebar.wallet} />
-          <div className="pt-6 border-t border-[#2B3139]/50 mt-4 space-y-2">
-              <SidebarLink onClick={() => safeNavigate('/hall-of-fame')} Icon={Star} label={t.dashboard.sidebar.hall_of_fame} />
-              <SidebarLink onClick={() => safeNavigate('/handbook')} Icon={BookOpen} label={t.dashboard.sidebar.handbook} />
-              <SidebarLink Icon={SettingsIcon} label={t.dashboard.sidebar.settings} active />
-          </div>
-        </nav>
-        <div className="p-6 border-t border-[#2B3139]">
-          <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 text-[#848E9C] hover:text-[#EAECEF] hover:bg-[#2B3139] rounded-xl transition font-black text-xs uppercase tracking-widest">
-            <LogOut size={16} /> <span>{t.dashboard.sidebar.logout}</span>
-          </button>
-        </div>
-      </aside>
-
-      {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[65] lg:hidden" onClick={() => setIsSidebarOpen(false)} />
-      )}
+      <UserSidebar 
+        isSidebarOpen={isSidebarOpen} 
+        setIsSidebarOpen={setIsSidebarOpen} 
+        safeNavigate={safeNavigate}
+        handleLogout={handleLogout}
+      />
 
       {/* --- KONTEN UTAMA --- */}
       <main className="flex-1 flex flex-col lg:ml-72 min-w-0 bg-[#0B0E11] relative overflow-y-auto">
@@ -627,11 +594,11 @@ export default function SettingsPage() {
 
                              <div className="flex flex-col sm:flex-row gap-4">
                                 <button 
-                                  onClick={handleVerifyEnrollment} 
-                                  disabled={is2FALoading || verificationCode.length < 6}
-                                  className="flex-1 bg-[#FCD535] text-black px-8 py-5 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-[#F0B90B] disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-[#FCD535]/10 flex items-center justify-center gap-2"
+                                   onClick={handleVerifyEnrollment} 
+                                   disabled={is2FALoading || verificationCode.length < 6}
+                                   className="flex-1 bg-[#FCD535] text-black px-8 py-5 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-[#F0B90B] disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-[#FCD535]/10 flex items-center justify-center gap-2"
                                 >
-                                  {is2FALoading ? <Loader2 className="animate-spin" size={20} /> : <>ACTIVATE 2FA <CheckCircle size={18}/></>}
+                                   {is2FALoading ? <Loader2 className="animate-spin" size={20} /> : <>ACTIVATE 2FA <CheckCircle size={18}/></>}
                                 </button>
                                 
                                 <button onClick={handleCancelEnrollment} className="px-6 py-5 rounded-2xl border border-[#2B3139] hover:bg-[#2B3139] text-[#848E9C] hover:text-[#EAECEF] transition-all font-bold uppercase tracking-widest text-xs">
@@ -751,12 +718,12 @@ export default function SettingsPage() {
                  
                  <div className="relative mb-8">
                     <input 
-                        type={!is2FAEnabled && !showDeletePass ? "password" : "text"}
-                        value={deleteInput}
-                        onChange={(e) => setDeleteInput(e.target.value)}
-                        placeholder={is2FAEnabled ? "Enter 6-digit 2FA Code" : "Enter Password"}
-                        className={`w-full bg-[#0B0E11] p-4 rounded-xl border border-[#2B3139] text-center font-bold text-sm tracking-wide text-white focus:border-[#F6465D] outline-none ${is2FAEnabled ? 'font-mono tracking-[0.5em] text-xl' : ''}`}
-                        maxLength={is2FAEnabled ? 6 : undefined}
+                       type={!is2FAEnabled && !showDeletePass ? "password" : "text"}
+                       value={deleteInput}
+                       onChange={(e) => setDeleteInput(e.target.value)}
+                       placeholder={is2FAEnabled ? "Enter 6-digit 2FA Code" : "Enter Password"}
+                       className={`w-full bg-[#0B0E11] p-4 rounded-xl border border-[#2B3139] text-center font-bold text-sm tracking-wide text-white focus:border-[#F6465D] outline-none ${is2FAEnabled ? 'font-mono tracking-[0.5em] text-xl' : ''}`}
+                       maxLength={is2FAEnabled ? 6 : undefined}
                     />
                     {!is2FAEnabled && (
                       <button 
@@ -785,24 +752,6 @@ export default function SettingsPage() {
 }
 
 // --- SUB KOMPONEN UI ---
-
-interface SidebarLinkProps {
-  Icon: any;
-  label: string;
-  active?: boolean;
-  onClick?: () => void;
-}
-
-function SidebarLink({ Icon, label, active = false, onClick }: SidebarLinkProps) {
-  return (
-    <div 
-      onClick={onClick} 
-      className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 font-black cursor-pointer text-xs uppercase tracking-widest ${active ? 'bg-[#2B3139] text-[#FCD535] shadow-lg border border-[#FCD535]/10' : 'text-[#848E9C] hover:bg-[#2B3139] hover:text-[#EAECEF]'}`}
-    >
-      <Icon size={18} /> <span>{label}</span>
-    </div>
-  );
-}
 
 function SecurityItem({ icon, title, desc, isToggle = false, isActive = false, onToggle, isLoading = false }: any) {
   return (

@@ -4,37 +4,36 @@ import React, { useState } from 'react';
 import { 
   ShieldCheck, 
   Zap, 
-  Target, 
   BarChart3, 
-  Lock, 
-  ChevronRight, 
   ArrowLeft,
   Coins,
   ShieldAlert,
   Globe,
   Trophy,
   Scale,
-  Flame,
-  LayoutDashboard,
   Rocket,
-  Wallet,
   UserCheck,
   Cpu,
-  Activity,
-  User,
-  Clock,
-  RefreshCw,
-  BookOpen,
   MessageCircle,
   Send,
-  Share2,
-  Monitor,
-  Gamepad2,
-  Book,
-  Link as LinkIcon
+  User
 } from 'lucide-react';
+
+// Import the missing icon component with correct relative path
+import LayoutDashboardIcon from '../../components/ui/LayoutDashboardIcon';
+
+// Perbaikan path relative
 import { useLanguage } from '../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
+
+// --- IMPORT KOMPONEN (FIXED RELATIVE PATHS) ---
+import NavCard from '../../components/handbook/NavCard';
+import ContentHeader from '../../components/handbook/ContentHeader';
+import GuideStep from '../../components/handbook/GuideStep';
+import FeeRow from '../../components/handbook/FeeRow';
+import TierRow from '../../components/handbook/TierRow';
+import ProjectCard from '../../components/handbook/ProjectCard';
+import SocialCard from '../../components/handbook/SocialCard';
 
 export default function HandbookPage() {
   const { t } = useLanguage();
@@ -54,15 +53,15 @@ export default function HandbookPage() {
       <header className="relative z-10 pt-10 lg:pt-16 pb-12 border-b border-[#2B3139] bg-[#0B0E11]/80 backdrop-blur-xl sticky top-0">
         <div className="max-w-7xl mx-auto px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-8">
            <div className="flex items-center gap-6 w-full md:w-auto">
-              <button onClick={() => safeNavigate('/')} className="p-4 bg-[#1E2329] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90 shadow-xl group">
+             <button onClick={() => safeNavigate('/')} className="p-4 bg-[#1E2329] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90 shadow-xl group">
                  <ArrowLeft size={24} className="group-hover:-translate-x-1 transition-transform" />
-              </button>
-              <div>
+             </button>
+             <div>
                  <div className="flex items-center gap-3 text-[#FCD535] font-black text-[10px] uppercase tracking-[0.4em] mb-2">
                     <ShieldCheck size={14} fill="currentColor" /> System documentation
                  </div>
                  <h1 className="text-3xl lg:text-5xl font-black text-white uppercase italic tracking-tighter leading-none">TradeHub <span className="text-[#FCD535]">{t.nav.handbook}</span></h1>
-              </div>
+             </div>
            </div>
            <div className="flex items-center gap-4">
              <LanguageSwitcher />
@@ -99,20 +98,20 @@ export default function HandbookPage() {
                 <ContentHeader title="TradeHub Ecosystem" subtitle="The Future of Verified Trading" icon={<Rocket className="text-[#FCD535]" />} />
                 <div className="prose prose-invert max-w-none space-y-6">
                    <p className="text-lg text-[#848E9C] leading-relaxed italic font-medium">
-                      TradeHub adalah protokol **Proof-of-Skill** pertama di jaringan Solana yang dirancang untuk memisahkan "keberuntungan sementara" dari "keahlian strategi murni". Kami menyediakan infrastruktur kompetisi yang 100% transparan, di mana setiap klaim keuntungan diverifikasi langsung melalui blockchain.
+                     TradeHub adalah protokol **Proof-of-Skill** pertama di jaringan Solana yang dirancang untuk memisahkan "keberuntungan sementara" dari "keahlian strategi murni". Kami menyediakan infrastruktur kompetisi yang 100% transparan, di mana setiap klaim keuntungan diverifikasi langsung melalui blockchain.
                    </p>
                    <p className="text-sm text-[#848E9C] leading-relaxed">
-                      Visi kami adalah menciptakan standar baru dalam dunia trading kripto di mana reputasi seseorang dibangun di atas data yang tidak dapat dipalsukan, bukan sekadar tangkapan layar (screenshot) yang mudah dimanipulasi. TradeHub memberdayakan komunitas untuk menyelenggarakan turnamen mereka sendiri dan memberikan panggung bagi trader berbakat untuk bersinar.
+                     Visi kami adalah menciptakan standar baru dalam dunia trading kripto di mana reputasi seseorang dibangun di atas data yang tidak dapat dipalsukan, bukan sekadar tangkapan layar (screenshot) yang mudah dimanipulasi. TradeHub memberdayakan komunitas untuk menyelenggarakan turnamen mereka sendiri dan memberikan panggung bagi trader berbakat untuk bersinar.
                    </p>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-8">
-                      <div className="bg-[#1E2329] p-8 rounded-[2.5rem] border border-[#2B3139] shadow-xl">
-                         <h4 className="text-white font-black uppercase italic mb-4 flex items-center gap-3"><Globe size={20} className="text-[#3b82f6]"/> Transparansi Total</h4>
-                         <p className="text-xs text-[#848E9C] leading-relaxed">Semua data performa ditarik langsung dari ledger Solana. Tidak ada input manual, tidak ada manipulasi spreadsheet, dan tidak ada ruang untuk kebohongan.</p>
-                      </div>
-                      <div className="bg-[#1E2329] p-8 rounded-[2.5rem] border border-[#2B3139] shadow-xl">
-                         <h4 className="text-white font-black uppercase italic mb-4 flex items-center gap-3"><ShieldCheck size={20} className="text-[#0ECB81]"/> Integritas On-Chain</h4>
-                         <p className="text-xs text-[#848E9C] leading-relaxed">TradeHub memastikan bahwa rekam jejak Anda adalah aset digital yang sah, dapat dibagikan, dan diakui secara global oleh komunitas dEGEN.</p>
-                      </div>
+                     <div className="bg-[#1E2329] p-8 rounded-[2.5rem] border border-[#2B3139] shadow-xl">
+                        <h4 className="text-white font-black uppercase italic mb-4 flex items-center gap-3"><Globe size={20} className="text-[#3b82f6]"/> Transparansi Total</h4>
+                        <p className="text-xs text-[#848E9C] leading-relaxed">Semua data performa ditarik langsung dari ledger Solana. Tidak ada input manual, tidak ada manipulasi spreadsheet, dan tidak ada ruang untuk kebohongan.</p>
+                     </div>
+                     <div className="bg-[#1E2329] p-8 rounded-[2.5rem] border border-[#2B3139] shadow-xl">
+                        <h4 className="text-white font-black uppercase italic mb-4 flex items-center gap-3"><ShieldCheck size={20} className="text-[#0ECB81]"/> Integritas On-Chain</h4>
+                        <p className="text-xs text-[#848E9C] leading-relaxed">TradeHub memastikan bahwa rekam jejak Anda adalah aset digital yang sah, dapat dibagikan, dan diakui secara global oleh komunitas dEGEN.</p>
+                     </div>
                    </div>
                 </div>
              </div>
@@ -123,32 +122,32 @@ export default function HandbookPage() {
                 <ContentHeader title="Clean ROI Logic" subtitle="Anti-Manipulation Engine" icon={<ShieldAlert className="text-yellow-500" />} />
                 <div className="space-y-8">
                    <p className="text-[#848E9C] leading-relaxed italic">
-                      Masalah utama dalam kompetisi trading konvensional adalah "Deposit-to-Win". Trader yang menambah saldo saat kompetisi akan terlihat memiliki profit lebih besar. **Clean ROI** hadir untuk menghancurkan praktik ini.
+                     Masalah utama dalam kompetisi trading konvensional adalah "Deposit-to-Win". Trader yang menambah saldo saat kompetisi akan terlihat memiliki profit lebih besar. **Clean ROI** hadir untuk menghancurkan praktik ini.
                    </p>
                    <div className="bg-[#1E2329] p-10 rounded-[3rem] border border-[#2B3139] space-y-8 shadow-2xl relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/5 blur-3xl"></div>
-                      <h4 className="font-black text-[#FCD535] uppercase text-xs tracking-[0.3em] italic flex items-center gap-3">
-                         <BarChart3 size={18}/> THE MASTER FORMULA
-                      </h4>
-                      <div className="bg-[#0B0E11] p-8 rounded-3xl font-mono text-xs md:text-sm lg:text-base text-center border border-[#2B3139] shadow-inner text-white leading-loose tracking-tighter overflow-x-auto">
-                         ROI = <span className="text-[#FCD535]">((Current - ExtDeposit - Snapshot) / Snapshot) * 100</span>
-                      </div>
-                      <div className="space-y-6">
-                         <div className="flex gap-6">
-                            <div className="w-10 h-10 bg-[#0B0E11] rounded-xl flex items-center justify-center shrink-0 text-[#FCD535] border border-[#2B3139] shadow-lg">1</div>
-                            <div>
-                               <h5 className="font-black text-white uppercase text-xs mb-2">Detection of External Deposits</h5>
-                               <p className="text-[11px] text-[#848E9C] leading-relaxed">Setiap transaksi masuk bertipe 'System Transfer' (bukan swap DEX) yang masuk ke wallet peserta setelah snapshot akan ditandai oleh Network Auditor kami.</p>
-                            </div>
-                         </div>
-                         <div className="flex gap-6">
-                            <div className="w-10 h-10 bg-[#0B0E11] rounded-xl flex items-center justify-center shrink-0 text-[#FCD535] border border-[#2B3139] shadow-lg">2</div>
-                            <div>
-                               <h5 className="font-black text-white uppercase text-xs mb-2">Automatic ROI Correction</h5>
-                               <p className="text-[11px] text-[#848E9C] leading-relaxed">Nilai setoran eksternal tersebut akan dikurangkan dari saldo semasa dalam perhitungan peringkat. Anda boleh menyetor dana tambahan, tetapi itu tidak akan membantu peringkat Anda.</p>
-                            </div>
-                         </div>
-                      </div>
+                     <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/5 blur-3xl"></div>
+                     <h4 className="font-black text-[#FCD535] uppercase text-xs tracking-[0.3em] italic flex items-center gap-3">
+                        <BarChart3 size={18}/> THE MASTER FORMULA
+                     </h4>
+                     <div className="bg-[#0B0E11] p-8 rounded-3xl font-mono text-xs md:text-sm lg:text-base text-center border border-[#2B3139] shadow-inner text-white leading-loose tracking-tighter overflow-x-auto">
+                        ROI = <span className="text-[#FCD535]">((Current - ExtDeposit - Snapshot) / Snapshot) * 100</span>
+                     </div>
+                     <div className="space-y-6">
+                        <div className="flex gap-6">
+                           <div className="w-10 h-10 bg-[#0B0E11] rounded-xl flex items-center justify-center shrink-0 text-[#FCD535] border border-[#2B3139] shadow-lg">1</div>
+                           <div>
+                              <h5 className="font-black text-white uppercase text-xs mb-2">Detection of External Deposits</h5>
+                              <p className="text-[11px] text-[#848E9C] leading-relaxed">Setiap transaksi masuk bertipe 'System Transfer' (bukan swap DEX) yang masuk ke wallet peserta setelah snapshot akan ditandai oleh Network Auditor kami.</p>
+                           </div>
+                        </div>
+                        <div className="flex gap-6">
+                           <div className="w-10 h-10 bg-[#0B0E11] rounded-xl flex items-center justify-center shrink-0 text-[#FCD535] border border-[#2B3139] shadow-lg">2</div>
+                           <div>
+                              <h5 className="font-black text-white uppercase text-xs mb-2">Automatic ROI Correction</h5>
+                              <p className="text-[11px] text-[#848E9C] leading-relaxed">Nilai setoran eksternal tersebut akan dikurangkan dari saldo semasa dalam perhitungan peringkat. Anda boleh menyetor dana tambahan, tetapi itu tidak akan membantu peringkat Anda.</p>
+                           </div>
+                        </div>
+                     </div>
                    </div>
                 </div>
              </div>
@@ -163,11 +162,11 @@ export default function HandbookPage() {
                    </p>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                      <div className="bg-[#1E2329] p-8 rounded-[2.5rem] border border-[#2B3139] shadow-xl">
-                        <h4 className="text-white font-black uppercase italic mb-4 flex items-center gap-3"><Clock size={20} className="text-[#3b82f6]"/> Initial Lock</h4>
+                        <h4 className="text-white font-black uppercase italic mb-4 flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-[#0B0E11] border border-[#3b82f6]/30 flex items-center justify-center"><Zap size={14} className="text-[#3b82f6]"/></div> Initial Lock</h4>
                         <p className="text-xs text-[#848E9C] leading-relaxed">Saat Anda menekan tombol 'Join', sistem akan mencatat `lamports` (satuan terkecil SOL) di dompet Anda. Angka ini menjadi penyebut absolut dalam rumus ROI.</p>
                      </div>
                      <div className="bg-[#1E2329] p-8 rounded-[2.5rem] border border-[#2B3139] shadow-xl">
-                        <h4 className="text-white font-black uppercase italic mb-4 flex items-center gap-3"><RefreshCw size={20} className="text-[#0ECB81]"/> Live Sync</h4>
+                        <h4 className="text-white font-black uppercase italic mb-4 flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-[#0B0E11] border border-[#0ECB81]/30 flex items-center justify-center"><Zap size={14} className="text-[#0ECB81]"/></div> Live Sync</h4>
                         <p className="text-xs text-[#848E9C] leading-relaxed">Setiap perubahan saldo dipantau via WebSocket RPC untuk memperbarui papan peringkat secara instan (real-time) tanpa perlu refresh halaman manual.</p>
                      </div>
                    </div>
@@ -205,15 +204,15 @@ export default function HandbookPage() {
                       </div>
                       <ul className="space-y-4 text-xs text-[#848E9C]">
                          <li className="flex items-start gap-4">
-                            <ChevronRight size={16} className="text-[#FCD535] mt-0.5" />
+                            <span className="text-[#FCD535] mt-0.5 font-bold">›</span>
                             <span><b>Biaya Peluncuran:</b> 0.1 SOL dibayarkan sekali untuk satu arena.</span>
                          </li>
                          <li className="flex items-start gap-4">
-                            <ChevronRight size={16} className="text-[#FCD535] mt-0.5" />
+                            <span className="text-[#FCD535] mt-0.5 font-bold">›</span>
                             <span><b>Kustomisasi Aturan:</b> Anda berhak menentukan hadiah, durasi waktu, dan syarat saldo minimum peserta.</span>
                          </li>
                          <li className="flex items-start gap-4">
-                            <ChevronRight size={16} className="text-[#FCD535] mt-0.5" />
+                            <span className="text-[#FCD535] mt-0.5 font-bold">›</span>
                             <span><b>Admin Dashboard:</b> Sebagai kreator, Anda memiliki akses ke 'CreatorHub' untuk mendiskualifikasi cheater atau memverifikasi pemenang.</span>
                          </li>
                       </ul>
@@ -349,103 +348,9 @@ export default function HandbookPage() {
       </main>
 
       <footer className="py-32 text-center opacity-10 border-t border-[#2B3139]/30 flex flex-col items-center gap-4">
-         <LayoutDashboard size={40} className="text-white" />
+         <LayoutDashboardIcon size={40} className="text-white" />
          <p className="text-[10px] font-black uppercase tracking-[1.5em] italic">TradeHub • The Trust Layer of Solana Ecosystem</p>
       </footer>
     </div>
-  );
-}
-
-// --- SUB-COMPONENTS ---
-
-function NavCard({ active, onClick, icon, title, desc }: any) {
-  return (
-    <div onClick={onClick} className={`p-8 rounded-[2.5rem] border transition-all duration-500 cursor-pointer group relative overflow-hidden ${active ? 'bg-[#1E2329] border-[#FCD535]/40 shadow-2xl scale-[1.02]' : 'bg-transparent border-[#2B3139] hover:border-[#474D57]'}`}>
-       {active && <div className="absolute top-0 right-0 w-24 h-24 bg-[#FCD535]/5 rounded-full blur-2xl"></div>}
-       <div className="flex items-center gap-5 mb-4 relative z-10">
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 ${active ? 'bg-[#FCD535] text-black shadow-lg shadow-[#FCD535]/20 rotate-6' : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'}`}>{icon}</div>
-          <h3 className={`font-black uppercase italic tracking-tighter text-base transition-colors duration-500 ${active ? 'text-white' : 'text-[#848E9C]'}`}>{title}</h3>
-       </div>
-       <p className="text-[10px] text-[#474D57] font-black uppercase tracking-widest leading-relaxed relative z-10">{desc}</p>
-    </div>
-  );
-}
-
-function ContentHeader({ title, subtitle, icon }: any) {
-  return (
-    <div className="flex items-center gap-8 mb-12 animate-in slide-in-from-left-4 duration-1000">
-       <div className="w-20 h-20 bg-[#1E2329] rounded-[2rem] border border-[#2B3139] flex items-center justify-center shadow-2xl shadow-black/50 text-white shrink-0">{icon}</div>
-       <div>
-          <h2 className="text-3xl lg:text-5xl font-black text-white uppercase italic tracking-tighter leading-none mb-3">{title}</h2>
-          <p className="text-[11px] font-black text-[#FCD535] uppercase tracking-[0.5em] italic">{subtitle}</p>
-       </div>
-    </div>
-  );
-}
-
-function GuideStep({ num, title, desc }: any) {
-  return (
-    <div className="flex items-start gap-8 p-8 rounded-[2.5rem] bg-[#1E2329]/40 border border-[#2B3139] hover:border-[#FCD535]/20 transition-all group shadow-xl">
-       <div className="text-3xl font-black text-[#2B3139] group-hover:text-[#FCD535]/20 transition-colors italic leading-none pt-1">{num}</div>
-       <div>
-          <h4 className="text-white font-black uppercase italic tracking-tight mb-2 group-hover:text-[#FCD535] transition-colors">{title}</h4>
-          <p className="text-xs text-[#848E9C] leading-relaxed font-medium italic">{desc}</p>
-       </div>
-    </div>
-  );
-}
-
-function FeeRow({ label, fee, desc }: any) {
-  return (
-    <div className="p-8 bg-[#0B0E11] rounded-[2rem] border border-[#2B3139] flex items-center justify-between group hover:border-[#FCD535]/30 transition-all shadow-inner relative overflow-hidden">
-       <div className="absolute inset-y-0 left-0 w-1 bg-[#FCD535] opacity-0 group-hover:opacity-100 transition-opacity"></div>
-       <div className="space-y-1.5 relative z-10">
-          <p className="text-sm font-black text-white uppercase italic tracking-tight">{label}</p>
-          <p className="text-[10px] text-[#474D57] font-black uppercase tracking-[0.2em]">{desc}</p>
-       </div>
-       <div className="text-right relative z-10">
-          <p className="text-2xl font-black text-[#FCD535] italic tracking-tighter leading-none mb-1">{fee}</p>
-          <p className="text-[9px] font-black text-[#474D57] uppercase tracking-[0.3em]">Network Standard</p>
-       </div>
-    </div>
-  );
-}
-
-function TierRow({ label, req, color, badge }: any) {
-  return (
-    <tr className="hover:bg-[#2B3139]/40 transition-colors group">
-       <td className={`p-8 font-black italic text-sm ${color}`}>{label}</td>
-       <td className="p-8 text-[#848E9C] text-xs font-bold italic tracking-wide hidden md:table-cell">{req}</td>
-       <td className="p-8 text-right"><span className="px-5 py-2 bg-[#0B0E11] rounded-xl border border-[#2B3139] text-[#FCD535] text-[10px] font-black tracking-widest shadow-lg group-hover:border-[#FCD535]/30 transition-all">{badge}</span></td>
-    </tr>
-  );
-}
-
-function ProjectCard({ icon, title, url, desc }: any) {
-  return (
-    <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-start gap-6 p-8 bg-[#1E2329] rounded-[2.5rem] border border-[#2B3139] hover:border-[#FCD535]/40 hover:-translate-y-1 transition-all group shadow-xl">
-       <div className="w-14 h-14 bg-[#0B0E11] rounded-2xl flex items-center justify-center border border-[#2B3139] shadow-inner group-hover:scale-110 transition-transform">
-          {icon}
-       </div>
-       <div>
-          <h4 className="text-white font-black uppercase italic tracking-tight mb-2 flex items-center gap-3">
-             {title} <LinkIcon size={12} className="text-[#474D57] group-hover:text-[#FCD535]" />
-          </h4>
-          <p className="text-xs text-[#848E9C] leading-relaxed font-medium italic">{desc}</p>
-       </div>
-    </a>
-  );
-}
-
-function SocialCard({ icon, name, desc, link, color }: any) {
-  return (
-    <a href={link} target="_blank" rel="noopener noreferrer" className="p-8 bg-[#1E2329] rounded-[2.5rem] border border-[#2B3139] hover:border-white/20 transition-all group flex flex-col items-center text-center hover:-translate-y-2 shadow-2xl relative overflow-hidden">
-       <div className={`absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity ${color}`}></div>
-       <div className={`w-16 h-16 rounded-3xl flex items-center justify-center text-white mb-6 shadow-lg ${color}`}>
-          {icon}
-       </div>
-       <h4 className="text-white font-black uppercase italic tracking-tight mb-2">{name}</h4>
-       <p className="text-[10px] text-[#848E9C] leading-relaxed font-black uppercase tracking-widest">{desc}</p>
-    </a>
   );
 }

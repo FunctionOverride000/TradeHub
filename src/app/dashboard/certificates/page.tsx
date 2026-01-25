@@ -2,40 +2,22 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  LayoutDashboard, 
   Trophy, 
   User, 
-  Settings as SettingsIcon, 
-  LogOut, 
-  CheckCircle, 
-  Clock, 
-  Download, 
-  Share2, 
-  Award, 
   Loader2, 
   Medal, 
-  TrendingUp, 
   BarChart2, 
   Wallet, 
-  Globe,
-  AlertTriangle,
-  Lock,
   Printer,
   X,
-  Copy,
-  Check,
+  Share2, 
+  Award, 
   ShieldCheck,
   Activity,
-  Verified,
-  Hexagon,
-  Signature,
-  FileBadge,
-  Sparkles,
-  FileText,
   Shield,
   Menu,
-  Star,
-  BookOpen
+  TrendingUp,
+  FileText
 } from 'lucide-react';
 
 /**
@@ -44,8 +26,11 @@ import {
  */
 import { createClient } from '@supabase/supabase-js';
 import * as web3 from '@solana/web3.js';
-import { useLanguage } from '../../../lib/LanguageContext';
-import { LanguageSwitcher } from '../../../lib/LanguageSwitcher';
+import { useLanguage } from '@/lib/LanguageContext';
+import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
+
+// --- IMPORT KOMPONEN BARU ---
+import UserSidebar from '@/components/dashboard/UserSidebar';
 
 // --- KONFIGURASI SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
@@ -209,45 +194,13 @@ export default function CertificatesPage() {
   return (
     <div className="flex min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans selection:bg-[#FCD535]/30 relative overflow-hidden">
       
-      {/* --- SIDEBAR (RESPONSIVE) --- */}
-      <aside className={`fixed inset-y-0 left-0 z-[70] w-72 bg-[#181A20] border-r border-[#2B3139] flex flex-col transition-transform duration-300 transform lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} print:hidden shadow-2xl lg:shadow-none`}>
-        <div className="p-8 border-b border-[#2B3139] flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => safeNavigate('/')}>
-            <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg shadow-[#FCD535]/10 group-hover:scale-110 transition-transform">
-              <TrendingUp className="text-black w-6 h-6" />
-            </div>
-            <span className="font-black text-xl tracking-tighter text-[#EAECEF]">TradeHub</span>
-          </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-[#848E9C] hover:text-white transition-colors">
-            <X size={22} />
-          </button>
-        </div>
-        <nav className="flex-1 p-6 space-y-2">
-          <SidebarLink onClick={() => safeNavigate('/dashboard')} Icon={LayoutDashboard} label={t.dashboard.sidebar.track_record} />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/pnl')} Icon={BarChart2} label={t.dashboard.sidebar.pnl_analysis} />
-          <SidebarLink Icon={Award} label={t.dashboard.sidebar.certificates} active />
-          <SidebarLink onClick={() => safeNavigate('/dashboard/wallet')} Icon={Wallet} label={t.dashboard.sidebar.wallet} />
-          {/* MENU TAMBAHAN DENGAN IKON KONSISTEN */}
-          <div className="pt-6 border-t border-[#2B3139]/50 mt-4 space-y-2">
-             <SidebarLink onClick={() => safeNavigate('/hall-of-fame')} Icon={Star} label={t.dashboard.sidebar.hall_of_fame} />
-             <SidebarLink onClick={() => safeNavigate('/handbook')} Icon={BookOpen} label={t.dashboard.sidebar.handbook} />
-             <SidebarLink onClick={() => safeNavigate('/dashboard/settings')} Icon={SettingsIcon} label={t.dashboard.sidebar.settings} />
-          </div>
-        </nav>
-        <div className="p-6 border-t border-[#2B3139]">
-          <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 text-[#848E9C] hover:text-[#EAECEF] hover:bg-[#2B3139] rounded-xl transition font-black text-xs uppercase tracking-widest">
-            <LogOut size={16} /> <span>{t.dashboard.sidebar.logout}</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* MOBILE OVERLAY */}
-      {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[65] lg:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
+      {/* --- MEMANGGIL KOMPONEN SIDEBAR --- */}
+      <UserSidebar 
+        isSidebarOpen={isSidebarOpen} 
+        setIsSidebarOpen={setIsSidebarOpen} 
+        safeNavigate={safeNavigate}
+        handleLogout={handleLogout}
+      />
 
       {/* --- KONTEN UTAMA --- */}
       <main className="flex-1 flex flex-col lg:ml-72 min-w-0 bg-[#0B0E11] relative print:bg-white print:p-0 print:ml-0 overflow-y-auto">
@@ -320,10 +273,10 @@ export default function CertificatesPage() {
                     <div className="flex-1 w-full text-center md:text-left">
                       <h3 className="text-lg lg:text-2xl font-black text-white uppercase italic tracking-tighter group-hover:text-[#FCD535] transition-colors leading-none">{item.rooms?.title}</h3>
                       <div className="mt-4 flex flex-wrap justify-center md:justify-start gap-3">
-                         <span className={`px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border ${isLive ? 'bg-[#0ECB81]/10 text-[#0ECB81] border-[#0ECB81]/20' : 'bg-[#848E9C]/10 text-[#848E9C] border-[#848E9C]/20'}`}>
-                           {isLive ? 'Live Track' : 'Final Result'}
-                         </span>
-                         <span className="px-2.5 py-1 rounded-lg bg-[#0B0E11] text-[#848E9C] text-[8px] font-black uppercase border border-[#2B3139]">ROI: {(item.profit || 0).toFixed(2)}%</span>
+                          <span className={`px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border ${isLive ? 'bg-[#0ECB81]/10 text-[#0ECB81] border-[#0ECB81]/20' : 'bg-[#848E9C]/10 text-[#848E9C] border-[#848E9C]/20'}`}>
+                            {isLive ? 'Live Track' : 'Final Result'}
+                          </span>
+                          <span className="px-2.5 py-1 rounded-lg bg-[#0B0E11] text-[#848E9C] text-[8px] font-black uppercase border border-[#2B3139]">ROI: {(item.profit || 0).toFixed(2)}%</span>
                       </div>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
@@ -348,7 +301,7 @@ export default function CertificatesPage() {
         {/* MODAL PREVIEW */}
         {viewingId && viewingCert && (
           <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center p-4 md:p-10 bg-black/95 backdrop-blur-3xl overflow-y-auto">
-             <div className="w-full max-w-[900px] flex justify-between items-center mb-8 shrink-0">
+              <div className="w-full max-w-[900px] flex justify-between items-center mb-8 shrink-0">
                 <div className="flex items-center gap-3 text-white">
                    <div className="w-10 h-10 bg-[#1E2329] rounded-xl flex items-center justify-center border border-white/10 text-[#FCD535]"><Shield size={24} /></div>
                    <h2 className="font-black uppercase tracking-widest text-[10px] hidden sm:block">Certificate of Excellence</h2>
@@ -357,12 +310,12 @@ export default function CertificatesPage() {
                   <button onClick={triggerPrint} className="px-5 sm:px-8 py-3 bg-[#FCD535] text-black rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center gap-2 active:scale-95 shadow-2xl">SAVE PDF <Printer size={16} /></button>
                   <button onClick={() => setViewingId(null)} className="p-3 bg-[#1E2329] text-white rounded-xl hover:bg-red-500 transition-all"><X size={20} /></button>
                 </div>
-             </div>
+              </div>
 
-             {/* PREVIEW CONTAINER */}
-             <div className="w-full max-w-[900px] shadow-[0_0_100px_rgba(0,0,0,0.8)] rounded-sm overflow-hidden scale-[0.85] sm:scale-100 origin-center border-[12px] border-[#111111]">
-                <CertificateMarkup cert={viewingCert} user={user} rank={rank} isPrint={false} />
-             </div>
+              {/* PREVIEW CONTAINER */}
+              <div className="w-full max-w-[900px] shadow-[0_0_100px_rgba(0,0,0,0.8)] rounded-sm overflow-hidden scale-[0.85] sm:scale-100 origin-center border-[12px] border-[#111111]">
+                 <CertificateMarkup cert={viewingCert} user={user} rank={rank} isPrint={false} />
+              </div>
           </div>
         )}
       </main>
@@ -397,20 +350,17 @@ export default function CertificatesPage() {
 
 // --- SUB KOMPONEN UI ---
 
-interface SidebarLinkProps {
-  Icon: any;
-  label: string;
-  active?: boolean;
-  onClick?: () => void;
-}
-
-function SidebarLink({ Icon, label, active = false, onClick }: SidebarLinkProps) {
+function StatCard({ label, value, icon, trend, trendUp }: any) {
   return (
-    <div 
-      onClick={onClick} 
-      className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-200 font-black cursor-pointer text-xs uppercase tracking-widest ${active ? 'bg-[#2B3139] text-[#FCD535] shadow-lg border border-[#FCD535]/10' : 'text-[#848E9C] hover:bg-[#2B3139] hover:text-[#EAECEF]'}`}
-    >
-      <Icon size={18} /> <span>{label}</span>
+    <div className="bg-[#1E2329] p-4 lg:p-6 rounded-[1.5rem] border border-[#2B3139] shadow-xl hover:border-[#FCD535]/20 transition-all group">
+      <div className="flex justify-between items-start mb-4">
+        <div className="text-[#848E9C] text-[9px] lg:text-[10px] font-black uppercase tracking-widest">{label}</div>
+        <div className="p-2.5 bg-[#0B0E11] rounded-2xl border border-[#2B3139] group-hover:border-[#FCD535]/30 transition-colors">{icon}</div>
+      </div>
+      <div className="flex items-end gap-3">
+        <div className="text-lg lg:text-2xl font-black text-[#EAECEF] tracking-tight">{value}</div>
+        <div className={`text-[8px] lg:text-[10px] font-black mb-1 px-2 py-0.5 rounded-full ${trendUp === true ? 'text-[#0ECB81] bg-[#0ECB81]/10' : trendUp === false ? 'text-[#F6465D] bg-[#F6465D]/10' : 'text-[#848E9C] bg-[#2B3139]'}`}>{trend}</div>
+      </div>
     </div>
   );
 }
@@ -541,21 +491,6 @@ function CertificateMarkup({ cert, user, rank, isPrint }: { cert: ParticipantDat
               </div>
            </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ label, value, icon, trend, trendUp }: any) {
-  return (
-    <div className="bg-[#1E2329] p-4 lg:p-6 rounded-[1.5rem] border border-[#2B3139] shadow-xl hover:border-[#FCD535]/20 transition-all group">
-      <div className="flex justify-between items-start mb-4">
-        <div className="text-[#848E9C] text-[9px] lg:text-[10px] font-black uppercase tracking-widest">{label}</div>
-        <div className="p-2.5 bg-[#0B0E11] rounded-2xl border border-[#2B3139] group-hover:border-[#FCD535]/30 transition-colors">{icon}</div>
-      </div>
-      <div className="flex items-end gap-3">
-        <div className="text-lg lg:text-2xl font-black text-[#EAECEF] tracking-tight">{value}</div>
-        <div className={`text-[8px] lg:text-[10px] font-black mb-1 px-2 py-0.5 rounded-full ${trendUp === true ? 'text-[#0ECB81] bg-[#0ECB81]/10' : trendUp === false ? 'text-[#F6465D] bg-[#F6465D]/10' : 'text-[#848E9C] bg-[#2B3139]'}`}>{trend}</div>
       </div>
     </div>
   );

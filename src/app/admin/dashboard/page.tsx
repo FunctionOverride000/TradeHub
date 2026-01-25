@@ -2,17 +2,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  ShieldCheck, 
   Users, 
   CheckCircle, 
   XCircle, 
   Search, 
   Trash2,
   Trophy,
-  ArrowLeft,
   Loader2,
-  LayoutDashboard,
-  RefreshCw,
   X,
   ChevronRight,
   ExternalLink,
@@ -22,35 +18,32 @@ import {
   Activity,
   History,
   Wifi,
-  WifiOff,
-  Flame,
-  Plus, 
   Rocket, 
   Crown,
   Wallet,
   Lock,
-  Star,
   Globe,
   Eye,
   EyeOff,
-  List,
   Edit, 
   Save,
-  Ticket // Icon Ticket
+  Ticket 
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
 import * as web3 from '@solana/web3.js';
-// PERBAIKAN IMPORT: Menggunakan relative path manual (../../)
 import { useLanguage } from '../../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../../lib/LanguageSwitcher'; 
 
+// --- IMPORT KOMPONEN YANG SUDAH DIPISAH ---
+// Pastikan file-file ini sudah Anda buat di folder src/components/admin/
+import AdminSidebar from '../../../components/admin/AdminSidebar';
+import AdminStatCard from '../../../components/admin/AdminStatCard';
+
 // --- KONFIGURASI SUPABASE ---
-// Mengutamakan Environment Variable. Jika tidak ada, kosongkan agar tidak error saat build.
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Hanya inisialisasi client jika URL & Key tersedia
 const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
@@ -59,6 +52,7 @@ const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.ma
 const PLATFORM_TREASURY = "DLmtgDL1viNJUBzZvd91cLVkdKz4YkivCSpNKNKe6oLg"; 
 const EDIT_FEE_SOL = 0.05; 
 
+// Interface Definitions
 interface Participant {
   id: string;
   joined_at: string;
@@ -99,7 +93,11 @@ interface Room {
   room_password?: string;
   whitelist?: string[];
   edit_count?: number; 
-  entry_fee?: number; // Field Entry Fee
+  entry_fee?: number; 
+  reward_token_amount?: number;
+  distribution_status?: string;
+  distribution_tx_hash?: string;
+  end_time?: string;
 }
 
 export default function CreatorDashboard() {
@@ -116,10 +114,8 @@ export default function CreatorDashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   
-  // State untuk Toggle Password Visibility per Room
+  // State UI
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
-
-  // State untuk Edit Arena
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [editForm, setEditForm] = useState({
     title: '',
@@ -131,7 +127,6 @@ export default function CreatorDashboard() {
     whitelistInput: '' 
   });
 
-  // State untuk Custom Modal Pembayaran Monetisasi
   const [paymentModal, setPaymentModal] = useState<{
     isOpen: boolean;
     type: 'boost' | 'premium' | null;
@@ -165,33 +160,23 @@ export default function CreatorDashboard() {
     setTimeout(() => setLastEvent(null), 3000);
   };
 
+  // --- USE EFFECTS ---
   useEffect(() => {
     const initAuth = async () => {
-        if (!supabase) {
-            console.warn("Supabase not initialized");
-            return;
-        }
+        if (!supabase) return;
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-            console.log("User belum login");
-        } else {
-            setUser(session.user);
-        }
+        setUser(session?.user || null);
     };
     initAuth();
   }, []);
 
   const setupMonitoringSync = (list: Participant[]) => {
     if (list.length === 0) return;
-    
     if (!connectionRef.current) {
       connectionRef.current = new web3.Connection(SOLANA_RPC, 'confirmed');
     }
-
     const connection = connectionRef.current;
-    subscriptionsRef.current.forEach(id => {
-      try { connection.removeAccountChangeListener(id); } catch(e) {}
-    });
+    subscriptionsRef.current.forEach(id => { try { connection.removeAccountChangeListener(id); } catch(e) {} });
     subscriptionsRef.current = [];
 
     list.slice(0, 15).forEach((p, index) => {
@@ -199,15 +184,13 @@ export default function CreatorDashboard() {
         try {
           const subId = connection.onAccountChange(new web3.PublicKey(p.wallet_address), (info) => {
             const newBalance = info.lamports / web3.LAMPORTS_PER_SOL;
-            triggerEventToast('chain', t.admin?.balance_changed?.replace('{wallet}', p.wallet_address.slice(0,4)) || `Balance update: ${p.wallet_address.slice(0,4)}`);
-            
+            triggerEventToast('chain', `Balance update: ${p.wallet_address.slice(0,4)}`);
             setParticipants(prev => prev.map(item => {
               if (item.wallet_address === p.wallet_address) {
                 const adjustedCurrent = newBalance - (item.total_deposit || 0);
                 const netProfit = item.initial_balance > 0 
                   ? ((adjustedCurrent - item.initial_balance) / item.initial_balance) * 100 
                   : 0;
-
                 return { ...item, current_balance: newBalance, profit: netProfit };
               }
               return item;
@@ -222,25 +205,18 @@ export default function CreatorDashboard() {
   };
 
   const fetchData = async (silent = false) => {
-    // 1. Safety Check: Pastikan user login & supabase ready
     if (!user || !supabase) {
         setIsLoading(false);
         return;
     }
-
     if (!silent) setIsSyncing(true);
     
     try {
-      const { data: roomData, error: roomError } = await supabase
+      const { data: roomData } = await supabase
         .from('rooms')
         .select('*')
         .eq('creator_id', user.id)
         .order('created_at', { ascending: false });
-        
-      if (roomError) {
-        // PERBAIKAN: Menggunakan console.warn agar tidak dianggap error fatal oleh Next.js build
-        console.warn("Gagal memuat arena (non-critical):", roomError.message || "Unknown error");
-      }
       setRooms(roomData || []);
 
       const { data: partData } = await supabase
@@ -259,7 +235,6 @@ export default function CreatorDashboard() {
       setParticipants(enrichedParticipants);
 
       const participantIds = enrichedParticipants.map((p: any) => p.id);
-      
       if (participantIds.length > 0) {
           const { data: logData } = await supabase
             .from('deposit_logs')
@@ -291,7 +266,7 @@ export default function CreatorDashboard() {
         fetchData(true); 
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deposit_logs' }, () => {
-        triggerEventToast('db', t.admin?.deposit_detected || "Deposit detected!");
+        triggerEventToast('db', "Deposit detected!");
         fetchData(true);
       })
       .subscribe((status) => {
@@ -300,38 +275,31 @@ export default function CreatorDashboard() {
       
     return () => { 
       supabase.removeChannel(channel);
-      subscriptionsRef.current.forEach(id => {
-        try { connectionRef.current?.removeAccountChangeListener(id); } catch(e) {}
-      });
+      subscriptionsRef.current.forEach(id => { try { connectionRef.current?.removeAccountChangeListener(id); } catch(e) {} });
     };
   }, [user]);
 
-  // ... (rest of the file remains the same, assuming user handles `handleUpdateStatus` etc correctly with supabase check, but fetch is the main issue reported)
-  
+  // --- ACTION HANDLERS ---
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     if (!supabase) return;
     try {
-      const { error } = await supabase
-        .from('participants')
-        .update({ status: newStatus })
-        .eq('id', id);
-
+      const { error } = await supabase.from('participants').update({ status: newStatus }).eq('id', id);
       if (error) throw error;
       setParticipants(prev => prev.map(p => p.id === id ? { ...p, status: newStatus } : p));
     } catch (err: any) {
-      alert("Gagal memperbarui status: " + err.message);
+      alert("Gagal: " + err.message);
     }
   };
 
   const handleDeleteParticipant = async (id: string) => {
     if (!supabase) return;
-    if (confirm("Keluarkan trader ini dari kompetisi secara permanen?")) {
+    if (confirm("Hapus peserta ini?")) {
       try {
         const { error } = await supabase.from('participants').delete().eq('id', id);
         if (error) throw error;
         fetchData();
       } catch (err: any) {
-        alert("Gagal menghapus peserta: " + err.message);
+        alert("Gagal: " + err.message);
       }
     }
   };
@@ -342,7 +310,7 @@ export default function CreatorDashboard() {
       const { value } = await connection.getSignatureStatuses([signature]);
       const status = value[0];
       if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return true;
-      if (status?.err) throw new Error("Transaksi gagal di blockchain.");
+      if (status?.err) throw new Error("Transaksi gagal.");
       await new Promise(resolve => setTimeout(resolve, 2000));
       count++;
     }
@@ -351,21 +319,23 @@ export default function CreatorDashboard() {
 
   const performPayment = async (amount: number, label: string): Promise<string | null> => {
     try {
-      const { solana } = window as any;
+      const phantom = (window as any).phantom?.solana;
+      let solana = phantom?.isPhantom ? phantom : (window as any).solana;
+
       if (!solana || !solana.isPhantom) {
-        alert(t.admin?.phantom_not_found || "Phantom wallet not found");
+        alert("Phantom wallet not found. Please install extension.");
+        window.open('https://phantom.app/', '_blank');
         return null;
       }
 
       if (!PLATFORM_TREASURY) {
-        alert("ERROR KONFIGURASI: Creator belum mengatur alamat dompet penerima (TREASURY).");
+        alert("ERROR: Treasury wallet not set.");
         return null;
       }
 
       setIsProcessingPayment(true);
       const response = await solana.connect();
       const fromPublicKey = response.publicKey;
-
       const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
       const transaction = new web3.Transaction().add(
         web3.SystemProgram.transfer({
@@ -380,24 +350,20 @@ export default function CreatorDashboard() {
       transaction.feePayer = fromPublicKey;
 
       const { signature } = await solana.signAndSendTransaction(transaction);
-      
-      triggerEventToast('chain', 'Memproses pembayaran di blockchain...');
+      triggerEventToast('chain', 'Processing payment...');
       await pollSignatureStatus(connection, signature);
-      
       return signature;
 
     } catch (err: any) {
       console.error("Payment Error:", err);
-      if (!err.message.includes("User rejected")) {
-         alert("Pembayaran Gagal: " + err.message);
-      }
+      if (!err.message.includes("User rejected")) alert("Pembayaran Gagal: " + err.message);
       return null;
     } finally {
       setIsProcessingPayment(false);
     }
   };
 
-  // --- LOGIKA EDIT ARENA ---
+  // --- LOGIKA EDIT & BOOST ---
   const openEditModal = (room: Room) => {
     setEditingRoom(room);
     setEditForm({
@@ -405,7 +371,7 @@ export default function CreatorDashboard() {
       description: room.description,
       reward: room.reward,
       min_balance: room.min_balance,
-      entry_fee: room.entry_fee || 0, // Load Entry Fee yang sudah ada
+      entry_fee: room.entry_fee || 0,
       room_password: room.room_password || '',
       whitelistInput: room.whitelist ? room.whitelist.join(', ') : ''
     });
@@ -413,88 +379,69 @@ export default function CreatorDashboard() {
 
   const handleSaveEdit = async () => {
     if (!editingRoom || !supabase) return;
-
     const editCount = editingRoom.edit_count || 0;
     const isFreeEdit = editCount === 0;
-    
     let signature: string | null = "free_edit";
 
     if (!isFreeEdit) {
-      if (!confirm(`You have used your free edit quota.\n\nNext edit fee: ${EDIT_FEE_SOL} SOL.\nContinue payment?`)) {
-        return;
-      }
-      // Bayar jika bukan edit gratis
+      if (!confirm(`Quota habis. Biaya edit: ${EDIT_FEE_SOL} SOL. Lanjut?`)) return;
       signature = await performPayment(EDIT_FEE_SOL, "Edit Arena Fee");
-      if (!signature) return; // Batal atau gagal bayar
+      if (!signature) return;
     }
 
-    // Format Whitelist Array
     const whitelistArray = editForm.whitelistInput.length > 0 
       ? editForm.whitelistInput.split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 0)
       : null;
 
-    // Simpan perubahan ke DB
     try {
-      const { error } = await supabase
-        .from('rooms')
-        .update({
+      const { error } = await supabase.from('rooms').update({
           title: editForm.title,
           description: editForm.description,
           reward: editForm.reward,
           min_balance: editForm.min_balance,
-          entry_fee: editForm.entry_fee, // Simpan perubahan Entry Fee
+          entry_fee: editForm.entry_fee,
           room_password: editForm.room_password || null, 
           whitelist: whitelistArray, 
           edit_count: editCount + 1 
-        })
-        .eq('id', editingRoom.id);
+        }).eq('id', editingRoom.id);
 
       if (error) throw error;
-
-      triggerEventToast('db', (t.admin?.arena_updated || "Arena updated").replace('{status}', !isFreeEdit ? '(Fee Paid)' : '(Free 1x)'));
-      setEditingRoom(null); // Tutup modal
-      fetchData(); // Refresh data
+      triggerEventToast('db', "Arena updated!");
+      setEditingRoom(null);
+      fetchData();
     } catch (err: any) {
-      alert("Gagal menyimpan perubahan: " + err.message);
+      alert("Error: " + err.message);
     }
   };
 
-  // --- LOGIKA MONETISASI LAINNYA ---
   const openBoostModal = (roomId: string) => {
     setPaymentModal({
       isOpen: true,
       type: 'boost',
       roomId,
       cost: 0.2,
-      title: t.admin?.boost_arena || "Boost Arena",
-      description: t.admin?.boost_desc || "Get featured on the homepage",
-      benefits: ['Posisi Sticky di Lobby Utama', 'Badge "Featured" Emas', 'Prioritas Algoritma Pencarian', 'Highlight di Sidebar']
+      title: "Boost Arena",
+      description: "Get featured on the homepage",
+      benefits: ['Sticky Position', 'Gold Badge', 'Search Priority', 'Sidebar Highlight']
     });
   };
 
-  // Fungsi toggle password visibility
   const togglePassword = (roomId: string) => {
     setVisiblePasswords(prev => ({...prev, [roomId]: !prev[roomId]}));
   };
 
   const handleConfirmPayment = async () => {
     if (!paymentModal.roomId || !paymentModal.type || !supabase) return;
-
     setPaymentModal(prev => ({ ...prev, isOpen: false }));
     const signature = await performPayment(paymentModal.cost, paymentModal.title);
 
     if (signature) {
       const updateData = paymentModal.type === 'boost' ? { is_boosted: true } : { is_premium: true };
-      
-      const { error } = await supabase
-        .from('rooms')
-        .update(updateData)
-        .eq('id', paymentModal.roomId);
-
+      const { error } = await supabase.from('rooms').update(updateData).eq('id', paymentModal.roomId);
       if (error) {
-        alert("Pembayaran sukses (On-Chain) namun status database gagal diperbarui. Signature: " + signature);
+        alert("Payment success but DB update failed. Sig: " + signature);
       } else {
-        triggerEventToast('db', `Pembayaran Berhasil! Status ${paymentModal.type === 'boost' ? 'Boost' : 'Premium'} Aktif.`);
+        triggerEventToast('db', "Boost Active!");
         setRooms(prev => prev.map(r => r.id === paymentModal.roomId ? {...r, ...updateData} : r));
       }
     }
@@ -506,6 +453,15 @@ export default function CreatorDashboard() {
     const matchesFilter = filterStatus === 'all' || (p.status || 'pending') === filterStatus;
     return matchesSearch && matchesFilter;
   });
+
+  const getStatusBadge = (status: string, endTime: string) => {
+    const isEnded = endTime ? new Date(endTime) < new Date() : false;
+    if (status === 'distributed') return <span className="flex items-center gap-1 text-[#0ECB81] text-[10px] font-bold"><CheckCircle size={12} /> Cair</span>;
+    if (status === 'processing') return <span className="flex items-center gap-1 text-[#FCD535] text-[10px] font-bold"><Loader2 size={12} className="animate-spin" /> Proses</span>;
+    if (status?.includes('failed')) return <span className="flex items-center gap-1 text-[#F6465D] text-[10px] font-bold"><AlertCircle size={12} /> Gagal</span>;
+    if (status === 'pending' && isEnded) return <span className="flex items-center gap-1 text-[#848E9C] text-[10px] font-bold"><History size={12} /> Antri</span>;
+    return <span className="flex items-center gap-1 text-[#2B3139] text-[10px] font-bold"><Activity size={12} /> Aktif</span>;
+  };
 
   if (isLoading) {
     return (
@@ -533,7 +489,6 @@ export default function CreatorDashboard() {
 
               <div className="space-y-4">
                 <div>
-                  {/* PERBAIKAN: Menghapus .form. dan menggunakan key langsung */}
                   <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">{t.create_arena.tournament_title}</label>
                   <input 
                     value={editForm.title} 
@@ -552,7 +507,6 @@ export default function CreatorDashboard() {
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    {/* PERBAIKAN: Menghapus .form. dan menggunakan key langsung */}
                     <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">{t.create_arena.reward}</label>
                     <input 
                       value={editForm.reward} 
@@ -561,7 +515,6 @@ export default function CreatorDashboard() {
                     />
                   </div>
                   <div>
-                    {/* PERBAIKAN: Menghapus .form. dan menggunakan key langsung */}
                     <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">{t.create_arena.min_balance}</label>
                     <input 
                       type="number"
@@ -584,7 +537,6 @@ export default function CreatorDashboard() {
                     />
                 </div>
 
-                {/* EDIT KHUSUS PREMIUM */}
                 {editingRoom.access_type === 'private' && (
                   <div className="pt-2 border-t border-[#2B3139]">
                     <label className="text-[10px] font-black text-[#F6465D] uppercase tracking-widest ml-1 mb-1 block">Update Password</label>
@@ -697,39 +649,14 @@ export default function CreatorDashboard() {
         </div>
       )}
 
-      <aside className={`fixed inset-y-0 left-0 z-[80] w-72 bg-[#181A20] border-r border-[#2B3139] flex flex-col transition-transform duration-300 transform lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} shadow-2xl lg:shadow-none`}>
-        <div className="p-8 border-b border-[#2B3139] flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => safeNavigate('/')}>
-            <div className="w-10 h-10 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-lg shadow-[#FCD535]/10 group-hover:scale-110 transition-transform">
-              <ShieldCheck className="text-black w-6 h-6" />
-            </div>
-            <span className="font-black text-xl tracking-tighter text-white uppercase italic">CreatorHub</span>
-          </div>
-          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-[#848E9C] hover:text-white transition-colors">
-            <X size={22} />
-          </button>
-        </div>
-        <nav className="flex-1 p-6 space-y-2">
-          {/* PERBAIKAN: Hardcode semua t.dashboard sidebar */}
-          <p className="text-[10px] font-black text-[#474D57] uppercase tracking-[0.2em] px-4 mb-4 italic">Control</p>
-          <SidebarLink onClick={() => { setActiveTab("participants"); setIsSidebarOpen(false); }} Icon={Users} label="Monitor" active={activeTab === "participants"} />
-          <SidebarLink onClick={() => { setActiveTab("audit"); setIsSidebarOpen(false); }} Icon={History} label="Audit" active={activeTab === "audit"} />
-          <SidebarLink onClick={() => { setActiveTab("rooms"); setIsSidebarOpen(false); }} Icon={Trophy} label="My Arenas" active={activeTab === "rooms"} />
-          <div className="pt-6 border-t border-[#2B3139] mt-6">
-            <p className="text-[10px] font-black text-[#474D57] uppercase tracking-[0.2em] px-4 mb-4 italic">Quick</p>
-            <SidebarLink onClick={() => safeNavigate('/buat-lomba')} Icon={Plus} label="Create" />
-            <SidebarLink onClick={() => safeNavigate('/dashboard')} Icon={LayoutDashboard} label="Portfolio" />
-          </div>
-        </nav>
-        <div className="p-6 border-t border-[#2B3139]">
-          <button onClick={() => safeNavigate('/')} className="flex items-center gap-3 w-full px-4 py-3 text-[#848E9C] hover:text-[#EAECEF] hover:bg-[#2B3139] rounded-xl transition font-black text-xs uppercase tracking-widest text-left">
-            <ArrowLeft size={16} />
-            <span>{t?.common?.back || "Back"}</span>
-          </button>
-        </div>
-      </aside>
-
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[75] lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
+      {/* --- MEMANGGIL KOMPONEN SIDEBAR & CONTENT --- */}
+      <AdminSidebar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        isSidebarOpen={isSidebarOpen} 
+        setIsSidebarOpen={setIsSidebarOpen} 
+        safeNavigate={safeNavigate} 
+      />
 
       <main className="flex-1 flex flex-col lg:ml-72 min-w-0 bg-[#0B0E11] relative overflow-y-auto">
         <div className="absolute inset-0 bg-[linear-gradient(rgba(30,33,38,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,33,38,0.5)_1px,transparent_1px)] bg-[size:40px_40px] opacity:10 pointer-events-none"></div>
@@ -740,7 +667,6 @@ export default function CreatorDashboard() {
               <Menu size={22} />
             </button>
             <div>
-              {/* PERBAIKAN: Hardcode header title */}
               <h1 className="text-xl lg:text-3xl font-black tracking-tighter italic uppercase text-white leading-none">
                 {activeTab === "participants" ? "Monitor" : activeTab === "audit" ? "Audit" : "My Arenas"}
               </h1>
@@ -750,18 +676,17 @@ export default function CreatorDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-             <LanguageSwitcher />
-             <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border ${dbStatus === 'connected' ? 'bg-[#0ECB81]/10 border-[#0ECB81]/20 text-[#0ECB81]' : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500'}`}>
+              <LanguageSwitcher />
+              <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border ${dbStatus === 'connected' ? 'bg-[#0ECB81]/10 border-[#0ECB81]/20 text-[#0ECB81]' : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500'}`}>
                 {dbStatus === 'connected' ? <Wifi size={14}/> : <Loader2 size={14} className="animate-spin"/>}
                 <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">{dbStatus === 'connected' ? "Online" : "Connecting"}</span>
-             </div>
+              </div>
           </div>
         </header>
 
         <div className="p-4 lg:p-10 max-w-7xl mx-auto relative z-10 pb-32 w-full">
           
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-12">
-            {/* PERBAIKAN: Hardcode Stat Labels */}
             <AdminStatCard label="Live" value={participants.length} icon={<Users className="text-[#3b82f6]" />} />
             <AdminStatCard label="Detections" value={depositLogs.length} icon={<ShieldAlert className="text-yellow-500" />} />
             <AdminStatCard label="Arenas" value={rooms.length} icon={<Trophy className="text-[#FCD535]" />} />
@@ -773,7 +698,6 @@ export default function CreatorDashboard() {
               <div className="flex flex-col lg:flex-row gap-4">
                 <div className="relative flex-1 group">
                   <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-[#474D57] group-focus-within:text-[#FCD535] transition-colors" size={20} />
-                  {/* PERBAIKAN: Hardcode placeholder */}
                   <input type="text" placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-14 pr-6 py-4 bg-[#1E2329] border border-[#2B3139] text-[#EAECEF] rounded-2xl focus:border-[#FCD535] outline-none transition-all font-bold text-sm shadow-inner placeholder:text-[#474D57]" />
                 </div>
                 <div className="flex bg-[#1E2329] p-1.5 rounded-2xl border border-[#2B3139] overflow-x-auto no-scrollbar">
@@ -788,7 +712,6 @@ export default function CreatorDashboard() {
                   <table className="w-full text-left text-sm min-w-[900px] lg:min-w-0">
                     <thead className="bg-[#2B3139]/50 text-[#848E9C] uppercase font-black text-[9px] lg:text-[10px] tracking-widest border-b border-[#2B3139]">
                       <tr>
-                        {/* PERBAIKAN: Hardcode Table Headers */}
                         <th className="p-4 lg:p-6">Identity</th>
                         <th className="p-4 lg:p-6">Target</th>
                         <th className="p-4 lg:p-6 text-right">Deposit</th>
@@ -799,7 +722,6 @@ export default function CreatorDashboard() {
                     </thead>
                     <tbody className="divide-y divide-[#2B3139]">
                       {filteredParticipants.length === 0 ? (
-                        /* PERBAIKAN: Hardcode empty state */
                         <tr><td colSpan={6} className="p-20 text-center text-[#474D57] font-black uppercase tracking-widest italic opacity-20 text-[10px]">No Data</td></tr>
                       ) : (
                         filteredParticipants.map(p => {
@@ -851,7 +773,6 @@ export default function CreatorDashboard() {
                    <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
                       <div className="w-20 h-20 bg-[#0B0E11] rounded-[2rem] flex items-center justify-center text-yellow-500 border border-[#2B3139] shadow-inner"><History size={40} /></div>
                       <div>
-                         {/* PERBAIKAN: Hardcode Audit Text */}
                          <h3 className="text-2xl lg:text-3xl font-black text-white uppercase italic tracking-tighter mb-2 leading-none">Audit Logs</h3>
                          <p className="text-xs text-[#848E9C] leading-relaxed italic max-w-xl">System logs.</p>
                       </div>
@@ -896,7 +817,6 @@ export default function CreatorDashboard() {
                  <div className="col-span-full py-40 text-center bg-[#1E2329]/40 rounded-[4rem] border border-dashed border-[#2B3139] flex flex-col items-center gap-6">
                     <Trophy size={48} className="text-[#2B3139]" />
                     <div className="space-y-4 text-center">
-                       {/* PERBAIKAN: Hardcode empty state */}
                        <p className="text-[#848E9C] font-black uppercase text-xs tracking-widest italic">No arenas</p>
                        <button onClick={() => safeNavigate('/buat-lomba')} className="px-10 py-5 bg-[#FCD535] text-black rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-[#F0B90B] transition-all shadow-xl active:scale-95">Luncurkan Arena Pertama</button>
                     </div>
@@ -926,7 +846,7 @@ export default function CreatorDashboard() {
                       </div>
 
                       <div className="absolute -top-4 -right-4 opacity-5 group-hover:opacity-10 group-hover:scale-110 transition-all duration-700 pointer-events-none">
-                         <Trophy size={120} />
+                          <Trophy size={120} />
                       </div>
                       
                       <div className="mb-4 pr-16 mt-8">
@@ -946,26 +866,34 @@ export default function CreatorDashboard() {
                           </div>
                       )}
 
+                      <div className="mb-4 flex flex-col gap-2">
+                         {/* Status Reward */}
+                         <div className="text-xs font-bold text-[#EAECEF] flex items-center justify-between">
+                            <span className="text-[#848E9C]">Reward Status:</span>
+                            {getStatusBadge(room.distribution_status || 'pending', room.end_time || '')}
+                         </div>
+                      </div>
+
                       <p className="text-xs text-[#848E9C] font-medium italic mb-6 line-clamp-3 leading-relaxed flex-1">{room.description}</p>
                       
                       {/* --- DETAIL RAHASIA --- */}
                       {room.access_type === 'private' && room.room_password && (
-                         <div className="mb-6 bg-[#0B0E11] p-3 rounded-xl border border-[#2B3139] flex items-center justify-between group/pass">
-                            <span className="text-[9px] font-black text-[#474D57] uppercase tracking-widest">Room Pass:</span>
-                            <div className="flex items-center gap-2">
-                               <code className="text-xs font-mono font-bold text-[#EAECEF]">{visiblePasswords[room.id] ? room.room_password : '••••••••'}</code>
-                               <button onClick={() => togglePassword(room.id)} className="text-[#474D57] hover:text-[#FCD535] transition-colors">{visiblePasswords[room.id] ? <EyeOff size={14} /> : <Eye size={14} />}</button>
-                            </div>
-                         </div>
+                          <div className="mb-6 bg-[#0B0E11] p-3 rounded-xl border border-[#2B3139] flex items-center justify-between group/pass">
+                             <span className="text-[9px] font-black text-[#474D57] uppercase tracking-widest">Room Pass:</span>
+                             <div className="flex items-center gap-2">
+                                <code className="text-xs font-mono font-bold text-[#EAECEF]">{visiblePasswords[room.id] ? room.room_password : '••••••••'}</code>
+                                <button onClick={() => togglePassword(room.id)} className="text-[#474D57] hover:text-[#FCD535] transition-colors">{visiblePasswords[room.id] ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+                             </div>
+                          </div>
                       )}
 
                       {room.access_type === 'whitelist' && (
-                         <div className="mb-6 bg-[#0B0E11] p-3 rounded-xl border border-[#2B3139] flex items-center justify-between">
-                            <span className="text-[9px] font-black text-[#474D57] uppercase tracking-widest">Whitelisted:</span>
-                            <div className="flex items-center gap-2 text-xs font-bold text-[#EAECEF]">
-                               <Users size={14} className="text-purple-500" /> {room.whitelist?.length || 0} Wallets
-                            </div>
-                         </div>
+                          <div className="mb-6 bg-[#0B0E11] p-3 rounded-xl border border-[#2B3139] flex items-center justify-between">
+                             <span className="text-[9px] font-black text-[#474D57] uppercase tracking-widest">Whitelisted:</span>
+                             <div className="flex items-center gap-2 text-xs font-bold text-[#EAECEF]">
+                                <Users size={14} className="text-purple-500" /> {room.whitelist?.length || 0} Wallets
+                             </div>
+                          </div>
                       )}
 
                       <div className="grid grid-cols-1 gap-3 mb-6">
@@ -981,10 +909,10 @@ export default function CreatorDashboard() {
                       </div>
 
                       <div className="flex justify-between items-center pt-6 border-t border-[#2B3139] text-[10px] font-black uppercase tracking-widest text-[#474D57]">
-                         <span className="flex items-center gap-2"><Users size={14} className="text-[#3b82f6]"/> {participants.filter(p=>p.room_id===room.id).length} Active</span>
-                         <button onClick={() => safeNavigate(`/lomba/${room.id}`)} className="text-[#EAECEF] hover:text-[#FCD535] transition-colors flex items-center gap-1 group/link">
+                          <span className="flex items-center gap-2"><Users size={14} className="text-[#3b82f6]"/> {participants.filter(p=>p.room_id===room.id).length} Active</span>
+                          <button onClick={() => safeNavigate(`/lomba/${room.id}`)} className="text-[#EAECEF] hover:text-[#FCD535] transition-colors flex items-center gap-1 group/link">
                             Open <ChevronRight size={12} className="group-hover/link:translate-x-1 transition-transform"/>
-                         </button>
+                          </button>
                       </div>
                    </div>
                  ))
@@ -994,36 +922,6 @@ export default function CreatorDashboard() {
 
         </div>
       </main>
-    </div>
-  );
-}
-
-// --- SUB KOMPONEN UI ---
-
-interface SidebarLinkProps {
-  Icon: any;
-  label: string;
-  active?: boolean;
-  onClick?: () => void;
-}
-
-function SidebarLink({ Icon, label, active = false, onClick }: SidebarLinkProps) {
-  return (
-    <div onClick={onClick} className={`flex items-center gap-4 px-6 py-5 rounded-2xl transition-all duration-300 font-black cursor-pointer text-[11px] uppercase tracking-widest ${active ? 'bg-[#2B3139] text-[#FCD535] shadow-xl border border-[#FCD535]/10' : 'text-[#848E9C] hover:bg-[#2B3139] hover:text-[#EAECEF]'}`}>
-      <Icon size={20} /> <span>{label}</span>
-    </div>
-  );
-}
-
-function AdminStatCard({ label, value, icon }: any) {
-  return (
-    <div className="bg-[#1E2329] p-6 lg:p-10 rounded-[2.5rem] border border-[#2B3139] shadow-2xl group hover:border-[#FCD535]/30 transition-all relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-[#FCD535] rounded-full blur-[80px] opacity-0 group-hover:opacity-5 transition-opacity"></div>
-      <div className="flex justify-between items-start mb-6">
-        <div className="text-[9px] lg:text-[10px] font-black text-[#474D57] uppercase tracking-[0.2em] italic">{label}</div>
-        <div className="p-3 bg-[#0B0E11] rounded-2xl border border-[#2B3139] text-[#848E9C] group-hover:text-[#FCD535] transition-all shadow-inner">{icon}</div>
-      </div>
-      <p className="text-3xl lg:text-5xl font-black text-white italic tracking-tighter uppercase leading-none">{value}</p>
     </div>
   );
 }
