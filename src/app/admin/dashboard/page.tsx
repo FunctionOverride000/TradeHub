@@ -27,7 +27,8 @@ import {
   EyeOff,
   Edit, 
   Save,
-  Ticket 
+  Ticket,
+  ShieldCheck // <-- Ditambahkan di sini
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
@@ -773,8 +774,8 @@ export default function CreatorDashboard() {
                    <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
                       <div className="w-20 h-20 bg-[#0B0E11] rounded-[2rem] flex items-center justify-center text-yellow-500 border border-[#2B3139] shadow-inner"><History size={40} /></div>
                       <div>
-                         <h3 className="text-2xl lg:text-3xl font-black text-white uppercase italic tracking-tighter mb-2 leading-none">Audit Logs</h3>
-                         <p className="text-xs text-[#848E9C] leading-relaxed italic max-w-xl">System logs.</p>
+                          <h3 className="text-2xl lg:text-3xl font-black text-white uppercase italic tracking-tighter mb-2 leading-none">Audit Logs</h3>
+                          <p className="text-xs text-[#848E9C] leading-relaxed italic max-w-xl">System logs.</p>
                       </div>
                    </div>
                 </div>

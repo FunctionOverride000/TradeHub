@@ -6,6 +6,7 @@ interface StatCardProps {
   icon: React.ReactNode;
   trend: string;
   trendUp: boolean;
+  subValue?: string; // Kept as optional for compatibility if needed elsewhere, but mainly using trend/trendUp
 }
 
 export default function UserStatCard({ label, value, icon, trend, trendUp }: StatCardProps) {

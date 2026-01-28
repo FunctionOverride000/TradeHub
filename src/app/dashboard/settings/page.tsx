@@ -20,7 +20,8 @@ import {
   Shield,
   Trash2,
   Smartphone,
-  Download
+  Download,
+  CheckCircle // <-- Ditambahkan di sini
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
@@ -345,8 +346,8 @@ export default function SettingsPage() {
       const { error: deleteFuncError } = await supabase.functions.invoke('delete-user');
       
       if (deleteFuncError) {
-         console.error("Gagal menghapus user via function:", deleteFuncError);
-         throw new Error("Gagal menghapus akun dari sistem autentikasi. Pastikan fungsi 'delete-user' sudah dideploy.");
+          console.error("Gagal menghapus user via function:", deleteFuncError);
+          throw new Error("Gagal menghapus akun dari sistem autentikasi. Pastikan fungsi 'delete-user' sudah dideploy.");
       }
 
       await supabase.auth.signOut();
@@ -520,14 +521,14 @@ export default function SettingsPage() {
             {mfaEnrollData && (
               <div className="mt-8 animate-in fade-in zoom-in-95 duration-500">
                 <div className="bg-[#181A20] rounded-[2.5rem] border border-[#FCD535]/30 overflow-hidden relative shadow-2xl">
-                   {/* Background Decorative */}
-                   <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/5 rounded-full blur-[80px] pointer-events-none"></div>
+                    {/* Background Decorative */}
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/5 rounded-full blur-[80px] pointer-events-none"></div>
 
-                   <div className="p-8 lg:p-12 flex flex-col xl:flex-row gap-12 items-center xl:items-start relative z-10">
+                    <div className="p-8 lg:p-12 flex flex-col xl:flex-row gap-12 items-center xl:items-start relative z-10">
                       {/* KOLOM KIRI: QR CODE & SECRET */}
                       <div className="flex flex-col items-center gap-6 shrink-0 xl:border-r border-[#2B3139] xl:pr-12 w-full xl:w-auto">
-                         {/* Container QR Code - Menggunakan img tag standar */}
-                         <div className="bg-white p-4 rounded-3xl shadow-[0_0_40px_rgba(255,255,255,0.1)] flex items-center justify-center relative group">
+                          {/* Container QR Code - Menggunakan img tag standar */}
+                          <div className="bg-white p-4 rounded-3xl shadow-[0_0_40px_rgba(255,255,255,0.1)] flex items-center justify-center relative group">
                             <img 
                               src={mfaEnrollData.qr_code} 
                               alt="Scan QR" 
@@ -542,17 +543,17 @@ export default function SettingsPage() {
                               <Download size={32} className="mb-2 text-[#FCD535]" />
                               <span className="text-xs font-bold uppercase tracking-widest">Download</span>
                             </button>
-                         </div>
-                         
-                         {/* Tombol Download Mobile (Visible always) */}
-                         <button 
+                          </div>
+                          
+                          {/* Tombol Download Mobile (Visible always) */}
+                          <button 
                             onClick={handleDownloadQR}
                             className="lg:hidden flex items-center gap-2 text-[#FCD535] text-xs font-bold uppercase tracking-widest hover:text-white transition-colors"
-                         >
-                            <Download size={16} /> Download QR Image
-                         </button>
-                         
-                         <div className="w-full max-w-xs text-center space-y-3 mt-2">
+                          >
+                             <Download size={16} /> Download QR Image
+                          </button>
+                          
+                          <div className="w-full max-w-xs text-center space-y-3 mt-2">
                             <p className="text-[10px] font-black text-[#848E9C] uppercase tracking-[0.2em]">Manual Entry Key</p>
                             <div 
                               className="flex items-center gap-3 bg-[#0B0E11] border border-[#2B3139] p-4 rounded-2xl group hover:border-[#FCD535]/50 transition-colors cursor-pointer active:scale-95 overflow-hidden" 
@@ -563,7 +564,7 @@ export default function SettingsPage() {
                                <Copy size={16} className="text-[#474D57] group-hover:text-white shrink-0" />
                             </div>
                             <p className="text-[10px] text-[#474D57] break-words">Cannot scan? Enter this code manually in your authenticator app.</p>
-                         </div>
+                          </div>
                       </div>
 
                       {/* KOLOM KANAN: INSTRUKSI & INPUT */}
@@ -582,13 +583,13 @@ export default function SettingsPage() {
                                       <Smartphone size={24} />
                                    </div>
                                    <input 
-                                      type="text" 
-                                      maxLength={6} 
-                                      value={verificationCode}
-                                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
-                                      placeholder="000 000"
-                                      className="flex-1 bg-transparent px-4 text-3xl font-mono tracking-[0.3em] text-white outline-none placeholder:text-[#2B3139] text-center sm:text-left h-full w-full min-w-0"
-                                   />
+                                     type="text" 
+                                     maxLength={6} 
+                                     value={verificationCode}
+                                     onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
+                                     placeholder="000 000"
+                                     className="flex-1 bg-transparent px-4 text-3xl font-mono tracking-[0.3em] text-white outline-none placeholder:text-[#2B3139] text-center sm:text-left h-full w-full min-w-0"
+                                    />
                                 </div>
                              </div>
 

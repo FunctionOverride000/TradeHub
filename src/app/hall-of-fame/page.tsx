@@ -6,7 +6,10 @@ import {
   Loader2, 
   Search, 
   Star, 
-  Flame
+  Flame,
+  Clock, // Icon baru untuk waktu
+  Gift,  // Icon baru untuk hadiah
+  CheckCircle2 // Icon untuk status aktif
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
@@ -39,6 +42,25 @@ export default function HallOfFamePage() {
 
   const safeNavigate = (path: string) => {
     window.location.href = path;
+  };
+
+  // --- HELPER: HITUNG JADWAL DISTRIBUSI BERIKUTNYA ---
+  const getNextDistributionDate = () => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    // Jadwal: 1 April, 1 Juli, 1 Oktober, 1 Januari (Tahun Depan)
+    const quarters = [
+      new Date(currentYear, 3, 1), // April (Bulan index 3)
+      new Date(currentYear, 6, 1), // Juli
+      new Date(currentYear, 9, 1), // Oktober
+      new Date(currentYear + 1, 0, 1) // Januari next year
+    ];
+    
+    // Cari tanggal pertama yang lebih besar dari hari ini
+    const nextDate = quarters.find(d => d > now) || quarters[0];
+    
+    // Format tanggal (English US untuk format internasional)
+    return nextDate.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
   /**
@@ -174,7 +196,7 @@ export default function HallOfFamePage() {
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[600px] bg-gradient-to-b from-[#FCD535]/5 to-transparent pointer-events-none opacity-40"></div>
       <div className="fixed inset-0 bg-[linear-gradient(rgba(30,33,38,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,33,38,0.5)_1px,transparent_1px)] bg-[size:40px_40px] opacity:10 pointer-events-none"></div>
 
-      <header className="relative z-10 pt-20 lg:pt-32 pb-20 border-b border-[#2B3139] bg-[#0B0E11]/80 backdrop-blur-xl sticky top-0">
+      <header className="relative z-10 pt-20 lg:pt-32 pb-10 border-b border-[#2B3139] bg-[#0B0E11]/80 backdrop-blur-xl sticky top-0">
         <div className="max-w-7xl mx-auto px-8 flex flex-col md:flex-row items-center justify-between gap-8">
            <div className="flex items-center gap-6 animate-in slide-in-from-left-4 duration-700">
              <button onClick={() => safeNavigate('/')} className="p-4 bg-[#1E2329] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90 shadow-xl group">
@@ -205,8 +227,39 @@ export default function HallOfFamePage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-8 py-20 relative z-10 pb-48">
+      <main className="max-w-7xl mx-auto px-8 py-10 relative z-10 pb-48">
         
+        {/* --- BANNER PEMBERITAHUAN DISTRIBUSI REWARD --- */}
+        <div className="mb-16 animate-in fade-in slide-in-from-top-4 duration-700">
+           <div className="bg-gradient-to-r from-[#FCD535]/10 to-[#FCD535]/5 border border-[#FCD535]/20 rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden group">
+              {/* Background Effect */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/10 rounded-full blur-[80px] pointer-events-none group-hover:bg-[#FCD535]/20 transition-all duration-1000"></div>
+              
+              <div className="flex flex-col md:flex-row items-center gap-8 relative z-10 text-center md:text-left">
+                 <div className="w-20 h-20 bg-[#FCD535]/20 rounded-[2rem] flex items-center justify-center text-[#FCD535] shadow-[0_0_30px_rgba(252,213,53,0.3)] shrink-0 animate-bounce delay-1000 duration-[3000ms]">
+                    <Gift size={36} strokeWidth={2.5} />
+                 </div>
+                 <div>
+                    <div className="flex items-center gap-3 justify-center md:justify-start mb-2">
+                       <span className="bg-[#FCD535] text-black text-[9px] font-black px-2 py-1 rounded uppercase tracking-widest">Quarterly Reward</span>
+                       <span className="text-[#0ECB81] text-[10px] font-black uppercase tracking-widest flex items-center gap-1"><CheckCircle2 size={12}/> Active Protocol</span>
+                    </div>
+                    <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter">Global Profit Share Program</h3>
+                    <p className="text-sm text-[#848E9C] font-medium max-w-xl mt-2 leading-relaxed">
+                       Top 3 Master Traders automatically receive a <span className="text-[#FCD535] font-bold">20% share of total platform revenue</span>. 
+                       Distribution is executed directly to wallets every quarter without manual claiming.
+                    </p>
+                 </div>
+              </div>
+
+              <div className="flex flex-col items-center bg-[#0B0E11]/80 backdrop-blur-sm px-8 py-5 rounded-3xl border border-[#FCD535]/20 relative z-10 shadow-2xl min-w-[200px]">
+                 <Clock size={24} className="text-[#FCD535] mb-2 animate-pulse" />
+                 <p className="text-[10px] font-black text-[#848E9C] uppercase tracking-[0.2em] mb-1">Next Payout</p>
+                 <p className="text-lg font-black text-white">{getNextDistributionDate()}</p>
+              </div>
+           </div>
+        </div>
+
         {/* TOP 3 LEGENDS - Redesigned Premium Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 lg:gap-14 mb-24 items-end">
            {filteredTraders.slice(0, 3).map((t, idx) => (
@@ -260,8 +313,8 @@ export default function HallOfFamePage() {
            
            <h3 className="text-3xl lg:text-5xl font-black text-white uppercase italic tracking-tighter mb-6 leading-none">Elite Reputation Protocol</h3>
            <p className="text-sm text-[#848E9C] leading-relaxed max-w-2xl mx-auto italic mb-14 font-medium">
-             Papan peringkat global TradeHub merekam setiap performa on-chain secara kumulatif. 
-             Sistem **Clean ROI** kami secara otomatis memfilter deposit eksternal untuk memastikan bahwa hanya skill murni yang membawa Anda ke puncak hierarki.
+             TradeHub&apos;s global leaderboard records every on-chain performance cumulatively. 
+             Our **Clean ROI** system automatically filters external deposits to ensure that only pure skill takes you to the top of the hierarchy.
            </p>
            
            <div className="flex flex-col sm:flex-row justify-center gap-6">

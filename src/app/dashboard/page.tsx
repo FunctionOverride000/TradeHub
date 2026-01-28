@@ -17,17 +17,21 @@ import {
   Star,
   Copy,
   Check,
-  Users
+  Users,
+  Wallet,
+  TrendingUp,
+  Activity,
+  Calendar
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
 import * as web3 from '@solana/web3.js';
-import { useLanguage } from '../../lib/LanguageContext';
-import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
+import { useLanguage } from '@/lib/LanguageContext';
+import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
 
 // --- IMPORT KOMPONEN BARU ---
-import UserSidebar from '../../components/dashboard/UserSidebar';
-import UserStatCard from '../../components/dashboard/UserStatCard';
+import UserSidebar from '@/components/dashboard/UserSidebar';
+import UserStatCard from '@/components/dashboard/UserStatCard';
 
 // --- KONFIGURASI SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -53,6 +57,7 @@ interface ParticipantData {
     is_premium: boolean;
     distribution_status?: string;
     winners_info?: any[];
+    status?: string;
   };
 }
 
@@ -63,7 +68,7 @@ interface UserStats {
   total_referrals: number;
 }
 
-export default function App() {
+export default function DashboardPage() {
   const { t } = useLanguage();
   const [user, setUser] = useState<any>(null);
   const [registrations, setRegistrations] = useState<ParticipantData[]>([]);
@@ -71,7 +76,6 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [copyId, setCopyId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [copiedRef, setCopiedRef] = useState(false);
   
@@ -147,7 +151,7 @@ export default function App() {
         // A. Fetch Participants
         const { data: participantsData, error: partError } = await supabase
           .from('participants')
-          .select(`*, rooms (title, is_premium, distribution_status, winners_info)`)
+          .select(`*, rooms (title, is_premium, distribution_status, winners_info, status)`)
           .eq('user_id', user.id)
           .order('joined_at', { ascending: false });
 
@@ -283,7 +287,7 @@ export default function App() {
 
         <div className="p-6 lg:p-10 max-w-7xl mx-auto relative z-10 pb-24 text-center sm:text-left">
           
-          {/* --- XP & LEVEL SECTION (BARU) --- */}
+          {/* --- XP & LEVEL SECTION --- */}
           {stats && (
             <div className="bg-gradient-to-r from-[#1E2329] to-[#0B0E11] rounded-[2.5rem] p-8 mb-10 border border-[#2B3139] shadow-2xl relative overflow-hidden">
                <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/5 rounded-full blur-[80px] pointer-events-none"></div>
@@ -346,58 +350,63 @@ export default function App() {
             <UserStatCard label={t.dashboard.stats.tournaments} value={achievements.length} icon={<Trophy size={20} className="text-[#FCD535]" />} trend={t.dashboard.stats.total_wins} trendUp={true} />
             <UserStatCard label={t.dashboard.stats.win_rate} value={`${winRate}%`} icon={<BarChart2 size={20} className="text-[#0ECB81]" />} trend={t.dashboard.stats.accuracy} trendUp={true} />
             <UserStatCard label={t.dashboard.stats.rank_tier} value={rank.label} icon={<Medal size={20} className={rank.color} />} trend={t.dashboard.stats.current} trendUp={true} />
-            {/* Menampilkan total XP di kartu stats juga jika data tersedia */}
             <UserStatCard label="Total XP" value={stats?.user_xp || 0} icon={<Star size={20} className="text-[#3b82f6]" />} trend="Career Points" trendUp={true} />
           </div>
 
           <div className="space-y-8">
             <h2 className="text-[10px] font-black text-[#474D57] flex items-center justify-center sm:justify-start gap-2 px-2 uppercase tracking-[0.4em] mb-4">{t.dashboard.records.title}</h2>
             
-            {registrations.map((item) => {
-              const profitVal = item.profit || 0;
-              const isAdjusted = (item.total_deposit || 0) > 0;
-              const winData = getWinnerStatus(item);
+            {registrations.length === 0 ? (
+               <div className="p-12 text-center bg-[#1E2329]/50 rounded-[2rem] border border-[#2B3139] border-dashed">
+                  <p className="text-[#474D57] font-bold text-sm italic">No records found. Join an arena to start building your legacy.</p>
+               </div>
+            ) : (
+               registrations.map((item) => {
+                 const profitVal = item.profit || 0;
+                 const isAdjusted = (item.total_deposit || 0) > 0;
+                 const winData = getWinnerStatus(item);
 
-              return (
-                <div key={item.id} className={`bg-[#1E2329] border ${winData ? 'border-[#FCD535]/50 shadow-[0_0_20px_rgba(252,213,53,0.1)]' : 'border-[#2B3139]'} hover:border-[#FCD535]/30 rounded-[2.5rem] p-6 lg:p-10 transition-all duration-300 group flex flex-col md:flex-row items-center gap-8 shadow-2xl relative overflow-hidden`}>
-                  <div className={`w-20 h-20 rounded-3xl flex items-center justify-center border shadow-inner shrink-0 ${winData ? 'bg-[#FCD535] text-black border-[#FCD535]' : 'bg-[#0B0E11] border-[#474D57] text-[#FCD535]'}`}>
-                     {winData ? <Crown size={32} fill="currentColor"/> : <Trophy size={32} />}
-                  </div>
-                  
-                  <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-2 leading-none flex items-center justify-center md:justify-start gap-3">
-                       {item.rooms?.title}
+                 return (
+                   <div key={item.id} className={`bg-[#1E2329] border ${winData ? 'border-[#FCD535]/50 shadow-[0_0_20px_rgba(252,213,53,0.1)]' : 'border-[#2B3139]'} hover:border-[#FCD535]/30 rounded-[2.5rem] p-6 lg:p-10 transition-all duration-300 group flex flex-col md:flex-row items-center gap-8 shadow-2xl relative overflow-hidden`}>
+                     <div className={`w-20 h-20 rounded-3xl flex items-center justify-center border shadow-inner shrink-0 ${winData ? 'bg-[#FCD535] text-black border-[#FCD535]' : 'bg-[#0B0E11] border-[#474D57] text-[#FCD535]'}`}>
+                         {winData ? <Crown size={32} fill="currentColor"/> : <Trophy size={32} />}
+                     </div>
+                     
+                     <div className="flex-1 text-center md:text-left">
+                       <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-2 leading-none flex items-center justify-center md:justify-start gap-3">
+                          {item.rooms?.title}
+                          {winData && (
+                             <span className="bg-[#FCD535] text-black text-[9px] px-2 py-1 rounded-md uppercase tracking-widest font-black flex items-center gap-1">
+                                Rank #{winData.rank}
+                             </span>
+                          )}
+                       </h3>
+                       
                        {winData && (
-                          <span className="bg-[#FCD535] text-black text-[9px] px-2 py-1 rounded-md uppercase tracking-widest font-black flex items-center gap-1">
-                             Rank #{winData.rank}
-                          </span>
+                          <p className="text-[#FCD535] text-xs font-bold mb-4 flex items-center justify-center md:justify-start gap-2">
+                             <CheckCircle size={14} /> Reward Paid: {winData.amount} SOL
+                          </p>
                        )}
-                    </h3>
-                    
-                    {winData && (
-                       <p className="text-[#FCD535] text-xs font-bold mb-4 flex items-center justify-center md:justify-start gap-2">
-                          <CheckCircle size={14} /> Reward Paid: {winData.amount} SOL
-                       </p>
-                    )}
 
-                    <div className="flex flex-wrap justify-center md:justify-start gap-3">
-                      <span className="px-3 py-1 rounded-lg bg-[#0ECB81]/10 text-[#0ECB81] text-[9px] font-black uppercase border border-[#0ECB81]/20 tracking-widest">{t.dashboard.records.verified_ledger}</span>
-                      {isAdjusted && <span className="px-3 py-1 rounded-lg bg-yellow-500/10 text-yellow-500 text-[9px] font-black uppercase border border-yellow-500/20 flex items-center gap-1"><ShieldAlert size={10}/> {t.dashboard.records.anti_cheat_filtered}</span>}
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-12 border-t md:border-t-0 md:border-l border-[#2B3139] pt-6 md:pt-0 md:pl-12 w-full md:w-auto justify-center">
-                      <div className="text-center">
-                         <p className="text-[9px] font-black text-[#474D57] uppercase tracking-widest mb-1 italic">{t.dashboard.records.clean_roi}</p>
-                         <p className={`text-4xl font-black italic tracking-tighter ${profitVal >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
-                            {profitVal >= 0 ? '+' : ''}{profitVal.toFixed(2)}%
-                         </p>
-                      </div>
-                      <button onClick={() => safeNavigate(`/lomba/${item.room_id}`)} className="p-4 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90"><ArrowUpRight size={20} /></button>
-                  </div>
-                </div>
-              );
-            })}
+                       <div className="flex flex-wrap justify-center md:justify-start gap-3">
+                         <span className="px-3 py-1 rounded-lg bg-[#0ECB81]/10 text-[#0ECB81] text-[9px] font-black uppercase border border-[#0ECB81]/20 tracking-widest">{t.dashboard.records.verified_ledger}</span>
+                         {isAdjusted && <span className="px-3 py-1 rounded-lg bg-yellow-500/10 text-yellow-500 text-[9px] font-black uppercase border border-yellow-500/20 flex items-center gap-1"><ShieldAlert size={10}/> {t.dashboard.records.anti_cheat_filtered}</span>}
+                       </div>
+                     </div>
+                     
+                     <div className="flex items-center gap-12 border-t md:border-t-0 md:border-l border-[#2B3139] pt-6 md:pt-0 md:pl-12 w-full md:w-auto justify-center">
+                         <div className="text-center">
+                             <p className="text-[9px] font-black text-[#474D57] uppercase tracking-widest mb-1 italic">{t.dashboard.records.clean_roi}</p>
+                             <p className={`text-4xl font-black italic tracking-tighter ${profitVal >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                {profitVal >= 0 ? '+' : ''}{profitVal.toFixed(2)}%
+                             </p>
+                         </div>
+                         <button onClick={() => safeNavigate(`/lomba/${item.room_id}`)} className="p-4 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90"><ArrowUpRight size={20} /></button>
+                     </div>
+                   </div>
+                 );
+               })
+            )}
           </div>
         </div>
       </main>

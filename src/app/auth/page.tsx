@@ -2,47 +2,52 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
+  ArrowLeft, 
   Mail, 
   Lock, 
-  User, 
-  ArrowRight, 
-  Github, 
-  Chrome,
+  Loader2, 
+  Zap, 
   Eye, 
   EyeOff, 
+  Github,
+  CheckCircle,
+  AlertCircle,
+  Gift,
+  Chrome,
+  Smartphone,
   ShieldCheck,
   ShieldAlert,
-  ArrowLeft,
-  Smartphone,
-  Loader2 // Import Loader2
+  User
 } from 'lucide-react';
-
 import { createClient } from '@supabase/supabase-js';
-import { useLanguage } from '../../lib/LanguageContext';
-import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
-import CustomPopup from '../../components/auth/CustomPopup';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useLanguage } from '@/lib/LanguageContext';
+import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
+import CustomPopup from '@/components/auth/CustomPopup';
 
-// --- KONFIGURASI SUPABASE ---
+// --- SETUP SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
 // Hanya inisialisasi client jika URL & Key valid
 const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
-// --- HALAMAN UTAMA ---
 export default function AuthPage() {
   const { t } = useLanguage();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  
   const [isLogin, setIsLogin] = useState(true);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   
-  // State Form
+  // Form State
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [referralCode, setReferralCode] = useState<string | null>(null);
 
   // --- STATE MFA (2FA) ---
   const [showMFA, setShowMFA] = useState(false);
@@ -65,6 +70,21 @@ export default function AuthPage() {
     window.location.href = path;
   };
 
+  // 1. TANGKAP REFERRAL CODE DARI URL
+  useEffect(() => {
+    const refParam = searchParams.get('ref');
+    if (refParam) {
+      setReferralCode(refParam.toUpperCase());
+      // Simpan sementara di LocalStorage agar tahan refresh
+      localStorage.setItem('tradehub_referral_pending', refParam.toUpperCase());
+    } else {
+      // Cek LocalStorage jika tidak ada di URL (mungkin user refresh page)
+      const storedRef = localStorage.getItem('tradehub_referral_pending');
+      if (storedRef) setReferralCode(storedRef);
+    }
+  }, [searchParams]);
+
+  // 2. LOGIKA MFA FLOW
   const handleMFAFlow = async () => {
     if (!supabase) return;
     try {
@@ -79,18 +99,50 @@ export default function AuthPage() {
         setShowMFA(true);
         setIsLoading(false); 
       } else {
-        safeNavigate('/dashboard');
+        // Jika tidak ada MFA, langsung ke dashboard
+        await finalizeLogin();
       }
     } catch (err) {
       console.error("Gagal inisialisasi MFA flow", err);
-      safeNavigate('/dashboard');
+      await finalizeLogin(); // Fallback
     }
   };
 
+  // 3. FUNGSI APPLY REFERRAL & REDIRECT
+  const applyReferralIfPending = async (userId: string) => {
+    if (!supabase) return;
+    const pendingCode = localStorage.getItem('tradehub_referral_pending');
+    if (!pendingCode) return;
+
+    try {
+      console.log("Applying referral code:", pendingCode);
+      // Panggil Edge Function
+      const { data, error } = await supabase.functions.invoke('apply-referral', {
+        body: { userId, referralCode: pendingCode }
+      });
+
+      if (!error && data?.success) {
+        console.log("Referral applied successfully!");
+        localStorage.removeItem('tradehub_referral_pending'); // Bersihkan setelah sukses
+      }
+    } catch (err) {
+      console.warn("Gagal menerapkan referral:", err);
+    }
+  };
+
+  const finalizeLogin = async () => {
+    if (!supabase) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+        await applyReferralIfPending(user.id);
+        safeNavigate('/dashboard');
+    }
+  };
+
+  // 4. CEK SESI SAAT LOAD
   useEffect(() => {
     if (!supabase) return;
 
-    // Cek session saat load pertama
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
@@ -98,6 +150,8 @@ export default function AuthPage() {
         if (authLevel.nextLevel === 'aal2' && authLevel.currentLevel !== 'aal2') {
           handleMFAFlow();
         } else {
+          // Sudah login & aman, tapi pastikan referral teraplikasi sebelum redirect
+          await applyReferralIfPending(session.user.id);
           safeNavigate('/dashboard');
         }
       }
@@ -109,22 +163,13 @@ export default function AuthPage() {
          safeNavigate('/auth/reset-password');
          return;
       }
-
-      if (event === 'SIGNED_IN' && session) {
-        if (!isLoading) {
-            const { data: authLevel } = await (supabase.auth as any).mfa.getAuthenticatorAssuranceLevel();
-            if (authLevel.nextLevel === 'aal2' && authLevel.currentLevel !== 'aal2') {
-              handleMFAFlow();
-            } else {
-               if (!email && !password) safeNavigate('/dashboard');
-            }
-        }
-      }
+      // Kita handle SIGNED_IN di logic login manual untuk kontrol lebih baik
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
+  // 5. HANDLER AUTH UTAMA
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supabase) {
@@ -133,7 +178,6 @@ export default function AuthPage() {
     }
 
     const cleanEmail = email.trim(); 
-    
     if (!cleanEmail) {
       showPopup('error', t.auth.errors.email_required, t.auth.errors.email_required_desc);
       return;
@@ -143,34 +187,32 @@ export default function AuthPage() {
 
     try {
       if (isForgotPassword) {
-        // --- ALUR LUPA SANDI ---
+        // --- LUPA SANDI ---
         const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
           redirectTo: `${window.location.origin}/auth/reset-password`,
         });
         
         if (error) throw error;
-        
-        showPopup('success', t.auth.errors.email_sent, `Recovery instructions have been sent to ${cleanEmail}. Please check your inbox or spam folder.`);
+        showPopup('success', t.auth.errors.email_sent, `Recovery instructions sent to ${cleanEmail}. Check inbox/spam.`);
         setIsForgotPassword(false);
 
       } else if (isLogin) {
-        // --- ALUR LOGIN ---
+        // --- LOGIN ---
         const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
         if (error) throw error;
 
-        // --- CEK MFA ---
+        // Cek MFA setelah login sukses
         const { data: authLevel } = await (supabase.auth as any).mfa.getAuthenticatorAssuranceLevel();
-        
         if (authLevel.nextLevel === 'aal2' && authLevel.currentLevel !== 'aal2') {
            await handleMFAFlow();
            return; 
         } else {
-           safeNavigate('/dashboard');
+           await finalizeLogin();
            return;
         }
 
       } else {
-        // --- ALUR REGISTER ---
+        // --- REGISTER ---
         const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
@@ -183,32 +225,35 @@ export default function AuthPage() {
         if (error) throw error;
 
         if (data.session) {
-            showPopup('success', "Registration Successful", "Account created successfully! Logging you in...");
+            // Auto login jika confirm email dimatikan di Supabase
+            showPopup('success', "Registration Successful", "Account created! Logging in...");
+            await finalizeLogin();
         } else {
-            showPopup('success', t.auth.errors.registration_success, "Registration successful! Please check your email (Inbox or Spam) to verify your account.");
+            showPopup('success', t.auth.errors.registration_success, "Registration successful! Please check your email to verify account.");
             setIsLogin(true);
         }
       }
     } catch (err: any) {
-      showPopup('error', t.auth.errors.access_denied, err.message || "Authentication protocol error occurred.");
+      showPopup('error', t.auth.errors.access_denied, err.message || "Authentication failed.");
     } finally {
-      if (!showMFA) {
-         setIsLoading(false);
-      }
+      if (!showMFA) setIsLoading(false);
     }
   };
 
-  const handleSocialLogin = async (provider: 'google' | 'github') => {
+  const handleOAuth = async (provider: 'google' | 'github') => {
     if (!supabase) return;
     setIsLoading(true);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
-        options: { redirectTo: `${window.location.origin}/dashboard` },
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`, // Supabase akan redirect ke sini setelah sukses
+        }
       });
       if (error) throw error;
+      // Note: Halaman akan redirect, logic referral untuk OAuth sebaiknya di handle di /dashboard juga sebagai backup
     } catch (err: any) {
-      showPopup('error', t.auth.errors.oauth_failed, `System cannot validate login through ${provider}.`);
+      showPopup('error', t.auth.errors.oauth_failed, `Login with ${provider} failed.`);
       setIsLoading(false);
     }
   };
@@ -231,7 +276,7 @@ export default function AuthPage() {
       });
 
       if (verifyError) throw verifyError;
-      safeNavigate('/dashboard');
+      await finalizeLogin();
     } catch (err: any) {
       showPopup('error', t.auth.errors.invalid_code, t.auth.errors.invalid_code_desc);
       setIsLoading(false);
@@ -340,6 +385,19 @@ export default function AuthPage() {
                  <span className="text-2xl font-black uppercase italic tracking-tighter">TradeHub</span>
                </div>
 
+               {/* BANNER REFERRAL AKTIF */}
+               {referralCode && (
+                 <div className="mb-8 bg-[#0ECB81]/10 border border-[#0ECB81]/20 p-4 rounded-2xl flex items-center gap-4 animate-in zoom-in-95">
+                    <div className="w-10 h-10 bg-[#0ECB81]/20 rounded-xl flex items-center justify-center text-[#0ECB81]">
+                       <Gift size={20} />
+                    </div>
+                    <div>
+                       <p className="text-[10px] font-black text-[#0ECB81] uppercase tracking-widest">Referral Code Applied</p>
+                       <p className="text-xs font-bold text-white">Code: {referralCode} <span className="opacity-70">(+50 XP Bonus)</span></p>
+                    </div>
+                 </div>
+               )}
+
                <div className="mb-12 text-center lg:text-left">
                  <h2 className="text-4xl font-black mb-3 text-[#EAECEF] tracking-tighter uppercase italic leading-none">
                    {isForgotPassword ? t.auth.reset_access : isLogin ? t.auth.welcome_back : t.auth.join_elite}
@@ -412,7 +470,7 @@ export default function AuthPage() {
                    ) : (
                      <>
                        {isForgotPassword ? t.auth.send_reset : isLogin ? t.auth.authorize_login : t.auth.create_account}
-                       <ArrowRight size={18} />
+                       <ArrowLeft size={18} className="rotate-180" />
                      </>
                    )}
                  </button>
@@ -432,13 +490,13 @@ export default function AuthPage() {
 
                    <div className="grid grid-cols-2 gap-4">
                      <button 
-                       onClick={() => handleSocialLogin('google')} disabled={isLoading}
+                       onClick={() => handleOAuth('google')} disabled={isLoading}
                        className="flex items-center justify-center gap-3 py-4 border border-[#2B3139] bg-[#1E2329]/40 rounded-2xl hover:bg-[#2B3139] transition-all text-[10px] font-black uppercase tracking-widest text-[#EAECEF] shadow-sm active:scale-95"
                      >
                        <Chrome className="w-4 h-4 text-[#F6465D]" /> Google
                      </button>
                      <button 
-                       onClick={() => handleSocialLogin('github')} disabled={isLoading}
+                       onClick={() => handleOAuth('github')} disabled={isLoading}
                        className="flex items-center justify-center gap-3 py-4 border border-[#2B3139] bg-[#1E2329]/40 rounded-2xl hover:bg-[#2B3139] transition-all text-[10px] font-black uppercase tracking-widest text-[#EAECEF] shadow-sm active:scale-95"
                      >
                        <Github className="w-4 h-4" /> Github
@@ -459,6 +517,8 @@ export default function AuthPage() {
             </div>
           )}
         </div>
+        
+        <p className="text-center text-[10px] text-[#474D57] font-mono mt-8 uppercase tracking-widest">Secured by Supabase Auth</p>
       </div>
     </div>
   );
