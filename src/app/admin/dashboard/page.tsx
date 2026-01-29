@@ -28,7 +28,7 @@ import {
   Edit, 
   Save,
   Ticket,
-  ShieldCheck // <-- Ditambahkan di sini
+  ShieldCheck
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
@@ -37,7 +37,7 @@ import { useLanguage } from '../../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../../lib/LanguageSwitcher'; 
 
 // --- IMPORT KOMPONEN YANG SUDAH DIPISAH ---
-// Pastikan file-file ini sudah Anda buat di folder src/components/admin/
+// Admin components
 import AdminSidebar from '../../../components/admin/AdminSidebar';
 import AdminStatCard from '../../../components/admin/AdminStatCard';
 
@@ -53,7 +53,7 @@ const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.ma
 const PLATFORM_TREASURY = "DLmtgDL1viNJUBzZvd91cLVkdKz4YkivCSpNKNKe6oLg"; 
 const EDIT_FEE_SOL = 0.05; 
 
-// Interface Definitions
+// Type definitions
 interface Participant {
   id: string;
   joined_at: string;
@@ -819,7 +819,7 @@ export default function CreatorDashboard() {
                     <Trophy size={48} className="text-[#2B3139]" />
                     <div className="space-y-4 text-center">
                        <p className="text-[#848E9C] font-black uppercase text-xs tracking-widest italic">No arenas</p>
-                       <button onClick={() => safeNavigate('/buat-lomba')} className="px-10 py-5 bg-[#FCD535] text-black rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-[#F0B90B] transition-all shadow-xl active:scale-95">Luncurkan Arena Pertama</button>
+                       <button onClick={() => safeNavigate('/create-arena')} className="px-10 py-5 bg-[#FCD535] text-black rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-[#F0B90B] transition-all shadow-xl active:scale-95">Launch First Arena</button>
                     </div>
                  </div>
                ) : (
@@ -911,7 +911,7 @@ export default function CreatorDashboard() {
 
                       <div className="flex justify-between items-center pt-6 border-t border-[#2B3139] text-[10px] font-black uppercase tracking-widest text-[#474D57]">
                           <span className="flex items-center gap-2"><Users size={14} className="text-[#3b82f6]"/> {participants.filter(p=>p.room_id===room.id).length} Active</span>
-                          <button onClick={() => safeNavigate(`/lomba/${room.id}`)} className="text-[#EAECEF] hover:text-[#FCD535] transition-colors flex items-center gap-1 group/link">
+                          <button onClick={() => safeNavigate(`/arena/${room.id}`)} className="text-[#EAECEF] hover:text-[#FCD535] transition-colors flex items-center gap-1 group/link">
                             Open <ChevronRight size={12} className="group-hover/link:translate-x-1 transition-transform"/>
                           </button>
                       </div>

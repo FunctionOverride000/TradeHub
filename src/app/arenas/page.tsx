@@ -48,7 +48,7 @@ export default function ArenasExplorer(props: PageProps) {
   const _params = React.use(props.params);
   const _searchParams = React.use(props.searchParams);
 
-  const { t, language, setLanguage } = useLanguage();
+  const { t } = useLanguage();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -146,24 +146,6 @@ export default function ArenasExplorer(props: PageProps) {
           </div>
           
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-[#1E2329] border border-[#2B3139] rounded-xl p-1">
-              <button
-                onClick={() => setLanguage('id')}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                  language === 'id' ? 'bg-[#FCD535] text-black' : 'text-[#848E9C] hover:text-white'
-                }`}
-              >
-                ID
-              </button>
-              <button
-                onClick={() => setLanguage('en')}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                  language === 'en' ? 'bg-[#FCD535] text-black' : 'text-[#848E9C] hover:text-white'
-                }`}
-              >
-                EN
-              </button>
-            </div>
             <button 
               onClick={() => safeNavigate('/')}
               className="hidden sm:flex items-center gap-2 px-4 py-2 text-[#848E9C] hover:text-white transition-all font-black text-[10px] uppercase tracking-widest"
@@ -211,7 +193,7 @@ export default function ArenasExplorer(props: PageProps) {
         <div className="flex bg-[#1E2329]/50 p-1.5 rounded-[1.5rem] border border-[#2B3139] mb-12 overflow-x-auto no-scrollbar w-fit animate-in fade-in duration-1000">
            <FilterButton active={filter === 'all'} onClick={() => setFilter('all')} label={t.explorer.all_arenas} count={rooms.length} />
            <FilterButton active={filter === 'active'} onClick={() => setFilter('active')} label={t.common.status.live} count={rooms.filter(r => getArenaStatus(r.start_time, r.end_time).label === t.common.status.live).length} />
-           <FilterButton active={filter === 'upcoming'} onClick={() => setFilter('upcoming')} label={t.common.status.mendatang} count={rooms.filter(r => getArenaStatus(r.start_time, r.end_time).label === t.common.status.upcoming).length} />
+           <FilterButton active={filter === 'upcoming'} onClick={() => setFilter('upcoming')} label={t.common.status.upcoming} count={rooms.filter(r => getArenaStatus(r.start_time, r.end_time).label === t.common.status.upcoming).length} />
            <FilterButton active={filter === 'finished'} onClick={() => setFilter('finished')} label={t.common.status.finished} count={rooms.filter(r => getArenaStatus(r.start_time, r.end_time).label === t.common.status.finished).length} />
         </div>
 
@@ -239,7 +221,7 @@ export default function ArenasExplorer(props: PageProps) {
                     index={idx}
                     status={getArenaStatus(room.start_time, room.end_time)}
                     t={t}
-                    onClick={() => safeNavigate(`/lomba/${room.id}`)}
+                    onClick={() => safeNavigate(`/arena/${room.id}`)}
                  />
               ))
             )}

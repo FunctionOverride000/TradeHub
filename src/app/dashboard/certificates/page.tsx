@@ -284,7 +284,7 @@ export default function CertificatesPage() {
                         <FileText size={16} /> VIEW
                       </button>
                       <button onClick={() => {
-                        const arenaUrl = `${window.location.origin}/lomba/${item.room_id}`;
+                        const arenaUrl = `${window.location.origin}/arena/${item.room_id}`;
                         navigator.clipboard.writeText(arenaUrl);
                         alert("Link Verifikasi Disalin!");
                       }} className="flex-1 md:flex-none px-6 py-4 bg-[#FCD535] text-black rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#FCD535]/10 active:scale-95">

@@ -69,7 +69,7 @@ export default function AdminSidebar({
           
           <div className="pt-6 border-t border-[#2B3139] mt-6">
             <p className="text-[10px] font-black text-[#474D57] uppercase tracking-[0.2em] px-4 mb-4 italic">Quick</p>
-            <SidebarLink onClick={() => safeNavigate('/buat-lomba')} Icon={Plus} label="Create" />
+            <SidebarLink onClick={() => safeNavigate('/create-arena')} Icon={Plus} label="Create" />
             <SidebarLink onClick={() => safeNavigate('/dashboard')} Icon={LayoutDashboard} label="Portfolio" />
           </div>
         </nav>

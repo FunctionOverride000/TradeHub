@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TradeHub - Proof of Achievement",
+  title: "TradeHub",
   description: "Platform Kompetisi Trading Terdesentralisasi",
   icons: {
     // Pastikan file icon.png ada di folder PUBLIC

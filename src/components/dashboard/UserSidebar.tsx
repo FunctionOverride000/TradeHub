@@ -95,7 +95,6 @@ export default function UserSidebar({ isSidebarOpen, setIsSidebarOpen, safeNavig
   const navItems = [
     { icon: <ArrowLeft size={20} />, label: "Back to Home", path: '/' },
     { icon: <Home size={20} />, label: t.dashboard.sidebar.overview, path: '/dashboard' },
-    { icon: <Trophy size={20} />, label: t.dashboard.sidebar.my_arenas, path: '/arenas' },
     { icon: <Wallet size={20} />, label: t.dashboard.sidebar.wallet, path: '/dashboard/wallet' },
     { icon: <BarChart2 size={20} />, label: "PnL Analytics", path: '/dashboard/pnl' },
     { icon: <Award size={20} />, label: "Certificates", path: '/dashboard/certificates' },

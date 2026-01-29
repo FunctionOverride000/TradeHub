@@ -22,7 +22,7 @@ Delete Account: Fitur penghapusan akun mandiri dengan validasi MFA/Password yang
 
 2. Manajemen Kompetisi (Arena)
 
-Pembuatan Lomba (/buat-lomba):
+Pembuatan Lomba (/create-arena):
 
 Creator bisa membuat lomba Gratis atau Berbayar.
 

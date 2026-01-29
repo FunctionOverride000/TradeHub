@@ -33,7 +33,7 @@ import {
   Crown,
   Lock,
   ArrowUpRight,
-  Link2 // Import ikon rantai
+  Link2
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
@@ -71,7 +71,7 @@ interface GlobalStats {
 }
 
 // --- UTILS COMPONENT: SPOTLIGHT CARD ---
-// Efek border mengikuti mouse untuk kesan premium
+// Mouse-following border effect for premium feel
 const SpotlightCard = ({ children, className = "", onClick, isBoosted = false }: any) => {
   const divRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -116,7 +116,7 @@ const AnimatedCounter = ({ value, prefix = "", suffix = "", decimals = 0 }: { va
     const end = value;
     if (start === end) return;
 
-    // Durasi animasi total (ms)
+    // Total animation duration (ms)
     const totalDuration = 2000;
     const incrementTime = 16; // ~60fps
     const steps = totalDuration / incrementTime;
@@ -143,7 +143,7 @@ const AnimatedCounter = ({ value, prefix = "", suffix = "", decimals = 0 }: { va
 };
 
 export default function LandingPage() {
-  const { t, language, setLanguage } = useLanguage();
+  const { t } = useLanguage();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -154,7 +154,7 @@ export default function LandingPage() {
   const [isNavVisible, setIsNavVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  // Statistik Global (Simulasi Data Solana Real)
+  // Global stats (simulated Solana data)
   const [stats, setStats] = useState<GlobalStats>({
     activeArenas: 0,
     globalSolanaVolume: 2450000000, // Mulai dari 2.4B
@@ -177,19 +177,19 @@ export default function LandingPage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Logic Scroll Navbar (Hide Down, Show Up)
+  // 2. Navbar scroll logic (hide on scroll down, show on scroll up)
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
       
-      // Threshold untuk mencegah jitter di paling atas
+      // Threshold to prevent jitter at top
       if (currentScrollY < 50) {
         setIsNavVisible(true);
       } else if (currentScrollY > lastScrollY) {
-        // Scroll ke bawah
+        // Scrolling down
         setIsNavVisible(false);
       } else {
-        // Scroll ke atas
+        // Scrolling up
         setIsNavVisible(true);
       }
       setLastScrollY(currentScrollY);
@@ -199,7 +199,7 @@ export default function LandingPage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [lastScrollY]);
 
-  // 3. Data Fetching (Arenas + Simulated Global Stats)
+  // 3. Data fetching (Arenas + simulated global stats)
   const fetchData = async () => {
     if (!supabase) { setIsLoading(false); return; }
 
@@ -226,7 +226,7 @@ export default function LandingPage() {
 
       setRooms(sortedRooms);
 
-      // Simulasi Update Live Data Global
+      // Simulate live global data update
       const randomVolFluctuation = Math.floor(Math.random() * 50000000);
       const randomUserFluctuation = Math.floor(Math.random() * 5000);
 
@@ -245,7 +245,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     fetchData();
-    // Refresh stats simulasi setiap 5 detik agar terlihat hidup
+    // Refresh simulated stats every 5 seconds
     const interval = setInterval(() => {
       setStats(prev => ({
         ...prev,
@@ -301,7 +301,7 @@ export default function LandingPage() {
         .animate-pulse-glow { animation: pulse-glow 6s ease-in-out infinite; }
       `}} />
 
-      {/* BACKGROUND FX (Sangat halus, tidak terang) */}
+      {/* Background effects */}
       <div className="fixed inset-0 pointer-events-none z-0">
           {/* Noise texture untuk kesan matte/doff */}
           <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 brightness-100 contrast-150 mix-blend-overlay"></div>
@@ -330,12 +330,6 @@ export default function LandingPage() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Language Switcher */}
-            <div className="flex items-center gap-1 bg-[#1E2329]/50 border border-[#2B3139] rounded-xl p-1 backdrop-blur-sm">
-              <LangButton current={language} target="id" setLang={setLanguage} label="ID" />
-              <LangButton current={language} target="en" setLang={setLanguage} label="EN" />
-            </div>
-
             {user ? (
               <div className="flex items-center gap-3">
                 <button onClick={() => safeNavigate('/admin/dashboard')} className="hidden lg:flex items-center gap-2 px-5 py-2.5 bg-[#1E2329] text-[#FCD535] rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-[#2B3139] border border-[#FCD535]/20 transition-all active:scale-95 shadow-inner hover:shadow-[#FCD535]/10 hover:border-[#FCD535]/50">
@@ -393,8 +387,8 @@ export default function LandingPage() {
         )}
       </nav>
 
-      {/* --- HERO SECTION (KOTAK-KOTAK SEDERHANA & CHAIN ANIMATION) --- */}
-      {/* UPDATE: Padding dikurangi agar teks lebih naik */}
+      {/* Hero section */}
+      {/* Hero section */}
       <header className="relative pt-24 lg:pt-36 pb-24 lg:pb-48 overflow-hidden text-center z-10">
         
         {/* GRID BACKGROUND - Ditingkatkan visibilitasnya */}
@@ -419,7 +413,7 @@ export default function LandingPage() {
                 
                 {/* --- ANIMASI RANTAI (ON-CHAIN) - CLICKABLE --- */}
                 <a 
-                    href="https://solscan.io/account/DLmtgDL1viNJUBzZvd91cLVkdKz4YkivCSpNKNKe6oLg" // Ganti dengan alamat wallet Solana asli
+                    href="https://solscan.io/account/DLmtgDL1viNJUBzZvd91cLVkdKz4YkivCSpNKNKe6oLg"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="absolute -top-6 -right-12 lg:-top-10 lg:-right-24 flex items-center justify-center opacity-80 scale-75 lg:scale-100 cursor-pointer hover:opacity-100 transition-opacity"
@@ -442,7 +436,7 @@ export default function LandingPage() {
           
           <div className="flex flex-col items-center gap-8 animate-in fade-in slide-in-from-bottom-16 duration-1000 delay-300">
               <div className="flex flex-col sm:flex-row gap-5 w-full sm:w-auto px-4 sm:px-0">
-                 <button onClick={() => safeNavigate('/buat-lomba')} className="w-full sm:w-auto px-12 py-5 bg-[#FCD535] text-black rounded-[1.5rem] font-black uppercase text-xs tracking-widest hover:bg-[#ffe066] transition-all flex items-center justify-center gap-3 active:scale-95 shadow-xl shadow-[#FCD535]/20 hover:shadow-[#FCD535]/40 group relative overflow-hidden">
+                 <button onClick={() => safeNavigate('/create-arena')} className="w-full sm:w-auto px-12 py-5 bg-[#FCD535] text-black rounded-[1.5rem] font-black uppercase text-xs tracking-widest hover:bg-[#ffe066] transition-all flex items-center justify-center gap-3 active:scale-95 shadow-xl shadow-[#FCD535]/20 hover:shadow-[#FCD535]/40 group relative overflow-hidden">
                     <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 blur-md"></div>
                     <span className="relative flex items-center gap-3">{t.landing.cta_create} <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" /></span>
                  </button>
@@ -466,7 +460,7 @@ export default function LandingPage() {
 
       {/* --- STATS SECTION (GLOBAL DATA) --- */}
       <section className="border-y border-[#2B3139] bg-[#181A20]/40 backdrop-blur-md relative overflow-hidden">
-        {/* Efek glow yang sangat minim hanya di section ini */}
+        {/* Subtle glow effect */}
         <div className="absolute inset-0 bg-[#FCD535]/5 blur-3xl opacity-10 pointer-events-none"></div>
         <div className="max-w-7xl mx-auto px-6 py-16 lg:py-24 grid grid-cols-2 md:grid-cols-4 gap-12 lg:gap-16 text-center relative z-10">
           
@@ -510,7 +504,8 @@ export default function LandingPage() {
                  <PartnerLogo name="Solana" img="/solana.png" />
                  <PartnerLogo name="Alchemy" img="/alchemy.jpeg" />
                  <PartnerLogo name="Phantom" img="/phantom.png" />
-                 <PartnerLogo name="Helius" img="/helius.png" fallbackIcon={<Cpu size={24}/>} />
+                 <PartnerLogo name="Helius" img="/helius.png" />
+                 <PartnerLogo name="GMGN.AI" img="/gmgn.png" />
               </div>
            </div>
         </div>
@@ -563,7 +558,7 @@ export default function LandingPage() {
             </div>
           ) : (
             <>
-              {/* LIST ARENA DENGAN EFEK SPOTLIGHT */}
+              {/* Arena list with spotlight effect */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-8 lg:gap-12">
                 {filteredRooms.length === 0 ? (
                   <div className="col-span-full py-32 text-center text-[#474D57] font-black uppercase tracking-widest text-xs italic opacity-30">{t.landing.active_arenas.no_arena}</div>
@@ -574,7 +569,7 @@ export default function LandingPage() {
                       <SpotlightCard 
                         key={room.id} 
                         isBoosted={room.is_boosted}
-                        onClick={() => safeNavigate(`/lomba/${room.id}`)} 
+                        onClick={() => safeNavigate(`/arena/${room.id}`)} 
                         className="p-8 lg:p-10 flex flex-col h-full cursor-pointer hover:-translate-y-2 group"
                       >
                         {/* BADGES */}
@@ -709,21 +704,6 @@ function NavLink({ href, icon, label }: any) {
             {icon} {label}
             <span className="absolute -bottom-2 left-0 w-0 h-[2px] bg-[#FCD535] group-hover:w-full transition-all duration-300"></span>
         </a>
-    )
-}
-
-function LangButton({ current, target, setLang, label }: any) {
-    return (
-        <button
-            onClick={() => setLang(target)}
-            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                current === target 
-                ? 'bg-[#FCD535] text-black shadow-lg shadow-[#FCD535]/20' 
-                : 'text-[#848E9C] hover:text-white hover:bg-[#2B3139]'
-            }`}
-        >
-            {label}
-        </button>
     )
 }
 

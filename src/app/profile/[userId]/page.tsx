@@ -27,7 +27,7 @@ import {
 import { createClient } from '@supabase/supabase-js';
 import * as web3 from '@solana/web3.js';
 
-// PERBAIKAN: Jalur impor relatif manual
+// Manual relative import path
 import { useLanguage } from '../../../lib/LanguageContext';
 import StatBadge from '../../../components/profile/StatBadge';
 
@@ -46,7 +46,7 @@ interface Achievement {
   wallet_address: string;
   initial_balance: number;
   current_balance: number;
-  total_deposit: number; // Variabel Anti-Cheat
+  total_deposit: number;
   joined_at: string;
   status: string;
   profit: number;
@@ -75,7 +75,7 @@ export default function ProfilePage({ params }: { params: Promise<{ userId: stri
 
   const { t } = useLanguage(); 
   const [history, setHistory] = useState<Achievement[]>([]);
-  const [stats, setStats] = useState<UserStats | null>(null); // State XP & Level
+  const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [traderName, setTraderName] = useState("Elite Trader");
   const [traderWallet, setTraderWallet] = useState<string>(""); 
@@ -415,7 +415,7 @@ export default function ProfilePage({ params }: { params: Promise<{ userId: stri
                        </div>
                     </div>
 
-                    <button onClick={() => safeNavigate(`/lomba/${item.room_id}`)} className="mt-14 w-full py-6 bg-[#0B0E11] border border-[#2B3139] rounded-3xl text-[10px] font-black uppercase tracking-[0.4em] hover:border-[#FCD535] hover:text-[#FCD535] transition-all flex items-center justify-center gap-3 active:scale-95 group/btn">
+                    <button onClick={() => safeNavigate(`/arena/${item.room_id}`)} className="mt-14 w-full py-6 bg-[#0B0E11] border border-[#2B3139] rounded-3xl text-[10px] font-black uppercase tracking-[0.4em] hover:border-[#FCD535] hover:text-[#FCD535] transition-all flex items-center justify-center gap-3 active:scale-95 group/btn">
                        VERIFY PROOF <ArrowUpRight size={16} className="group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-transform" />
                     </button>
                  </div>

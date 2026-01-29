@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, RefreshCw, ShieldCheck, CheckCircle } from 'lucide-react';
+import { TrendingUp, RefreshCw, ShieldCheck, CheckCircle, LineChart } from 'lucide-react';
 
 interface Participant {
   id: string;
@@ -18,6 +18,24 @@ interface LeaderboardTableProps {
 }
 
 export default function LeaderboardTable({ participants, room, isRefreshing, refreshLeaderboard }: LeaderboardTableProps) {
+  
+  // Handle row click (Solscan)
+  const handleRowClick = (walletAddress: string) => {
+    if (!walletAddress) return;
+    const url = `https://solscan.io/account/${walletAddress}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  // --- FUNGSI BARU: Handle Track Click (GMGN.ai) ---
+  // Menggunakan GMGN.ai karena Dexscreener tidak memiliki fitur profil wallet.
+  // GMGN sangat detail untuk melihat "wallet ini sedang trade token apa".
+  const handleTrackClick = (e: React.MouseEvent, walletAddress: string) => {
+    e.stopPropagation();
+    if (!walletAddress) return;
+    const url = `https://gmgn.ai/sol/address/${walletAddress}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   return (
     <div className="lg:col-span-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-6">
@@ -72,7 +90,12 @@ export default function LeaderboardTable({ participants, room, isRefreshing, ref
                   const winnerData = room?.winners_info?.find((w: any) => w.wallet === p.wallet_address);
 
                   return (
-                    <tr key={p.id} className={`hover:bg-[#2B3139]/60 transition-all group cursor-default ${winnerData ? 'bg-[#0ECB81]/5' : ''}`}>
+                    <tr 
+                        key={p.id} 
+                        onClick={() => handleRowClick(p.wallet_address)}
+                        className={`hover:bg-[#2B3139]/60 transition-all group cursor-pointer ${winnerData ? 'bg-[#0ECB81]/5' : ''}`}
+                        title="Click row for Solscan, click icon for GMGN Trade Tracker"
+                    >
                       <td className="p-8 font-black">
                         <div className="flex items-center gap-4">
                           {isTop3 ? (
@@ -85,23 +108,33 @@ export default function LeaderboardTable({ participants, room, isRefreshing, ref
                         </div>
                       </td>
                       <td className="p-8">
-                         <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-4">
                            <div className="w-10 h-10 rounded-xl bg-[#0B0E11] border border-[#2B3139] flex items-center justify-center text-[10px] font-black text-[#FCD535] group-hover:border-[#FCD535]/50 transition-colors">W</div>
                            <div className="flex flex-col">
-                             <span className="font-mono text-sm text-[#EAECEF] group-hover:text-[#FCD535] transition-colors font-bold tracking-tight">
-                               {p.wallet_address.slice(0, 10)}...{p.wallet_address.slice(-10)}
-                             </span>
+                             <div className="flex items-center gap-3">
+                                <span className="font-mono text-sm text-[#EAECEF] group-hover:text-[#FCD535] transition-colors font-bold tracking-tight">
+                                  {p.wallet_address.slice(0, 10)}...{p.wallet_address.slice(-10)}
+                                </span>
+                                {/* TOMBOL TRACKER (GMGN.AI) */}
+                                <button
+                                  onClick={(e) => handleTrackClick(e, p.wallet_address)}
+                                  className="p-1.5 rounded-lg bg-[#2B3139] text-[#848E9C] hover:bg-[#FCD535] hover:text-black transition-all hover:scale-110 active:scale-95 border border-[#474D57] hover:border-[#FCD535]"
+                                  title="Analyze Trades on GMGN.ai"
+                                >
+                                  <LineChart size={12} strokeWidth={3} />
+                                </button>
+                             </div>
                              <span className="text-[9px] font-black text-[#474D57] uppercase tracking-widest mt-1 italic flex items-center gap-1">
                                 {winnerData ? (
                                    <span className="text-[#0ECB81] flex items-center gap-1"><CheckCircle size={10}/> Reward: {winnerData.amount.toFixed(2)} SOL</span>
                                 ) : 'On-Chain Verified'}
                              </span>
                            </div>
-                         </div>
+                          </div>
                       </td>
                       <td className="p-8 text-right font-mono text-xs text-[#848E9C] font-bold">{p.initial_balance?.toFixed(3)}</td>
                       <td className="p-8 text-right font-mono text-sm text-[#EAECEF] font-black">
-                         {p.current_balance?.toFixed(3)}
+                          {p.current_balance?.toFixed(3)}
                       </td>
                       <td className="p-8 text-right">
                         <div className="inline-flex flex-col items-end">

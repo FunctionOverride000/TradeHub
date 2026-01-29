@@ -11,7 +11,9 @@ import {
 import bs58 from 'https://esm.sh/bs58@5.0.0'
 
 // --- KONFIGURASI ---
-const SIMULATION_MODE = false; // Set false untuk Live (Uang Asli)
+// Ambil mode dari Environment Variable. Jika tidak ada, default ke FALSE (Live Mode)
+// Set 'SIMULATION_MODE' = 'true' di Dashboard Supabase jika ingin tes tanpa keluar uang.
+const SIMULATION_MODE = Deno.env.get('SIMULATION_MODE') === 'true';
 
 // Pembagian Hadiah Juara (50%, 30%, 20%)
 const REWARD_DISTRIBUTION = [0.50, 0.30, 0.20]; 
@@ -32,7 +34,7 @@ const XP_RATES = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-const SOLANA_RPC_URL = Deno.env.get('SOLANA_RPC_URL') ?? 'https://api.devnet.solana.com' 
+const SOLANA_RPC_URL = Deno.env.get('SOLANA_RPC_URL') ?? 'https://api.mainnet-beta.solana.com'
 const PAYOUT_WALLET_PRIVATE_KEY = Deno.env.get('PAYOUT_WALLET_PRIVATE_KEY') ?? ''
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -82,12 +84,11 @@ async function updateUserStats(
       last_updated: new Date().toISOString()
     }).eq('user_id', userId);
   } else {
-    // Fallback insert jika row belum ada (Trigger harusnya sudah handle ini, tapi untuk jaga-jaga)
+    // Fallback insert jika row belum ada
     await supabase.from('user_stats').insert({
       user_id: userId,
       [colXp]: newXp,
       [colLevel]: newLevel,
-      // Generate referral code acak jika belum ada
       referral_code: 'TRD-' + Math.random().toString(36).substring(2, 8).toUpperCase()
     });
   }
@@ -96,6 +97,7 @@ async function updateUserStats(
 }
 
 Deno.serve(async (req) => {
+  // Handle CORS Preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' } })
   }
@@ -112,16 +114,20 @@ Deno.serve(async (req) => {
       throw new Error(`Failed to decode private key: ${e.message}`)
     }
 
-    console.log(`🤖 Payout & XP Bot Active. Wallet: ${adminKeypair.publicKey.toBase58()}`)
+    console.log(`🤖 Payout & XP Bot Active. Wallet: ${adminKeypair.publicKey.toBase58()} | Mode: ${SIMULATION_MODE ? 'SIMULATION' : 'LIVE'}`)
 
-    // 1. Cari Room yang Pending Distribusi
+    // Cek Saldo Admin Terlebih Dahulu
+    const adminBalance = await connection.getBalance(adminKeypair.publicKey);
+    console.log(`💰 Admin Balance: ${adminBalance / LAMPORTS_PER_SOL} SOL`);
+
+    // 1. Cari Room yang Pending Distribusi (Limit 1 per run agar aman)
     const { data: rooms, error: roomError } = await supabase
       .from('rooms')
       .select('*')
       .lt('end_time', new Date().toISOString()) 
       .eq('distribution_status', 'pending')
       .gt('reward_token_amount', 0)
-      .limit(5)
+      .limit(1)
 
     if (roomError) throw roomError
     
@@ -129,161 +135,161 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ message: 'No rooms pending distribution' }), { headers: { 'Content-Type': 'application/json' } })
     }
 
-    const results = []
+    const room = rooms[0];
+    const results = [];
 
-    // 2. Loop Proses Setiap Room
-    for (const room of rooms) {
-      console.log(`Processing Room ID: ${room.id} | Reward Pool: ${room.reward_token_amount} SOL`)
-      // Tandai processing agar tidak diambil worker lain
-      await supabase.from('rooms').update({ distribution_status: 'processing' }).eq('id', room.id)
+    console.log(`Processing Room ID: ${room.id} | Reward Pool: ${room.reward_token_amount} SOL`)
+    
+    // Tandai processing agar tidak diambil worker lain (Locking)
+    await supabase.from('rooms').update({ distribution_status: 'processing' }).eq('id', room.id)
 
-      try {
-        const { data: participants, error: partError } = await supabase
-          .from('participants')
-          .select('id, wallet_address, net_profit, user_id, initial_balance, current_balance')
-          .eq('room_id', room.id)
-          .order('net_profit', { ascending: false }); // PENTING: Urutkan profit tertinggi
+    try {
+      const { data: participants, error: partError } = await supabase
+        .from('participants')
+        .select('id, wallet_address, net_profit, user_id, initial_balance, current_balance')
+        .eq('room_id', room.id)
+        .order('net_profit', { ascending: false }); // PENTING: Urutkan profit tertinggi
 
-        if (partError) throw partError
-        
-        const participantCount = participants?.length || 0;
-        
-        // --- A. PROSES XP KREATOR (Viral Incentivization) ---
-        if (room.creator_id) {
-            let creatorXpEarned = XP_RATES.CREATOR_BASE;
-            
-            // XP Variabel dari jumlah peserta
-            creatorXpEarned += (participantCount * XP_RATES.CREATOR_PER_USER);
-            
-            // Hype Bonus (Jackpot XP)
-            if (participantCount > 50) creatorXpEarned += XP_RATES.CREATOR_HYPE_TIER_2;
-            else if (participantCount > 10) creatorXpEarned += XP_RATES.CREATOR_HYPE_TIER_1;
+      if (partError) throw partError
+      
+      const participantCount = participants?.length || 0;
+      
+      // --- A. PROSES XP KREATOR (Viral Incentivization) ---
+      if (room.creator_id) {
+          let creatorXpEarned = XP_RATES.CREATOR_BASE;
+          
+          // XP Variabel dari jumlah peserta
+          creatorXpEarned += (participantCount * XP_RATES.CREATOR_PER_USER);
+          
+          // Hype Bonus (Jackpot XP)
+          if (participantCount > 50) creatorXpEarned += XP_RATES.CREATOR_HYPE_TIER_2;
+          else if (participantCount > 10) creatorXpEarned += XP_RATES.CREATOR_HYPE_TIER_1;
 
-            const { oldXp, newXp } = await updateUserStats(room.creator_id, creatorXpEarned, 'creator', 'arena_finished', room.id);
-            console.log(`Creator ${room.creator_id} earned ${creatorXpEarned} XP. Total: ${newXp}`);
+          const { oldXp, newXp } = await updateUserStats(room.creator_id, creatorXpEarned, 'creator', 'arena_finished', room.id);
+          console.log(`Creator ${room.creator_id} earned ${creatorXpEarned} XP. Total: ${newXp}`);
 
-            // ** CREATOR REWARD (1 SOL jika tembus 10.000 XP) **
-            // Cek apakah user baru saja melewati ambang batas 10.000 XP
-            if (oldXp < 10000 && newXp >= 10000) {
-               console.log(`🎉 CREATOR ${room.creator_id} REACHED VISIONARY LEVEL! Sending 1 SOL Bonus.`);
-               // Kirim Bonus 1 SOL (Real Money)
-               if (!SIMULATION_MODE) {
-                  // Ambil wallet creator dari tabel rooms (sebagai fallback jika tidak ada di profile)
-                  // Idealnya ada tabel user_wallets, tapi kita pakai creator_wallet dari room terakhir ini
-                  const creatorWalletAddr = room.creator_wallet; 
-                  
-                  if (creatorWalletAddr) {
-                      const bonusTx = new Transaction().add(
-                          SystemProgram.transfer({
-                              fromPubkey: adminKeypair.publicKey,
-                              toPubkey: new PublicKey(creatorWalletAddr),
-                              lamports: 1 * LAMPORTS_PER_SOL, // 1 SOL
-                          })
-                      );
-                      const bonusSig = await sendAndConfirmTransaction(connection, bonusTx, [adminKeypair]);
-                      console.log(`✅ Bonus 1 SOL Sent! Sig: ${bonusSig}`);
-                      
-                      // Catat di log bahwa reward sudah diklaim
-                      await supabase.from('xp_logs').insert({
-                        user_id: room.creator_id,
-                        amount: 0,
-                        xp_category: 'creator',
-                        action_type: 'reward_claimed_1sol',
-                        description: `Bonus for reaching 10k XP. Sig: ${bonusSig}`
-                      });
-                  }
-               }
-            }
-        }
-
-        // --- B. PROSES HADIAH USER & XP USER ---
-        if (participantCount === 0) {
-           await supabase.from('rooms').update({ distribution_status: 'failed', description: 'No participants' }).eq('id', room.id);
-           continue;
-        }
-
-        const transaction = new Transaction();
-        const totalReward = room.reward_token_amount || 0;
-        const winnersLog: any[] = [];
-        let instructionAdded = false;
-
-        // Loop setiap peserta untuk hitung XP dan Hadiah
-        for (let i = 0; i < participants.length; i++) {
-            const p = participants[i];
-            const rank = i + 1;
-            let userXpEarned = XP_RATES.USER_JOIN; // Base XP
-
-            // Bonus XP Profit
-            if (Number(p.net_profit) > 0) userXpEarned += XP_RATES.USER_PROFIT;
-
-            // Bonus XP Juara
-            if (rank === 1) userXpEarned += XP_RATES.USER_RANK_1;
-            else if (rank === 2) userXpEarned += XP_RATES.USER_RANK_2;
-            else if (rank === 3) userXpEarned += XP_RATES.USER_RANK_3;
-
-            // Simpan XP User
-            if (p.user_id) {
-                await updateUserStats(p.user_id, userXpEarned, 'user', `rank_${rank}`, room.id);
-            }
-
-            // --- TRANSFER HADIAH SOL (Hanya Top 3) ---
-            if (rank <= 3) {
-                const sharePercentage = REWARD_DISTRIBUTION[i];
-                const amountSOL = totalReward * sharePercentage;
-                const amountLamports = Math.floor(amountSOL * LAMPORTS_PER_SOL);
-
-                if (amountLamports > 0) {
-                    console.log(`Plan transfer: ${amountSOL} SOL to ${p.wallet_address} (Rank ${rank})`);
+          // ** CREATOR REWARD (1 SOL jika tembus 10.000 XP) **
+          if (oldXp < 10000 && newXp >= 10000) {
+              console.log(`🎉 CREATOR ${room.creator_id} REACHED VISIONARY LEVEL! Sending 1 SOL Bonus.`);
+              
+              if (!SIMULATION_MODE) {
+                // Gunakan wallet creator dari tabel rooms atau profil user jika ada
+                const creatorWalletAddr = room.creator_wallet; 
+                
+                if (creatorWalletAddr) {
+                    const bonusTx = new Transaction().add(
+                        SystemProgram.transfer({
+                            fromPubkey: adminKeypair.publicKey,
+                            toPubkey: new PublicKey(creatorWalletAddr),
+                            lamports: 1 * LAMPORTS_PER_SOL, // 1 SOL Reward
+                        })
+                    );
+                    const bonusSig = await sendAndConfirmTransaction(connection, bonusTx, [adminKeypair]);
+                    console.log(`✅ Bonus 1 SOL Sent! Sig: ${bonusSig}`);
                     
-                    if (!SIMULATION_MODE) {
-                        transaction.add(
-                            SystemProgram.transfer({
-                                fromPubkey: adminKeypair.publicKey,
-                                toPubkey: new PublicKey(p.wallet_address),
-                                lamports: amountLamports,
-                            })
-                        );
-                    }
-                    
-                    instructionAdded = true;
-                    winnersLog.push({
-                        rank: rank,
-                        wallet: p.wallet_address,
-                        amount: amountSOL,
-                        user_id: p.user_id,
-                        roi: p.net_profit
+                    await supabase.from('xp_logs').insert({
+                      user_id: room.creator_id,
+                      amount: 0,
+                      xp_category: 'creator',
+                      action_type: 'reward_claimed_1sol',
+                      description: `Bonus for reaching 10k XP. Sig: ${bonusSig}`
                     });
                 }
-            }
-        }
-
-        // --- C. FINALISASI TRANSAKSI ---
-        let signature = `simulated_tx_${Math.random().toString(36).substring(7)}`;
-
-        if (instructionAdded) {
-            if (!SIMULATION_MODE) {
-                console.log("🚀 Sending Real Transaction...");
-                signature = await sendAndConfirmTransaction(connection, transaction, [adminKeypair]);
-                console.log(`✅ Transaction Sent! Sig: ${signature}`);
-            } else {
-                console.log(`⚠️ SIMULATION MODE: Fake Sig: ${signature}`);
-            }
-        }
-
-        // Update Status Room jadi Distributed
-        await supabase.from('rooms').update({
-            distribution_status: 'distributed',
-            distribution_tx_hash: signature,
-            winners_info: winnersLog
-        }).eq('id', room.id);
-
-        results.push({ roomId: room.id, status: 'success', signature, mode: SIMULATION_MODE ? 'simulation' : 'live' });
-
-      } catch (err: any) {
-        console.error(`❌ Error processing room ${room.id}:`, err);
-        await supabase.from('rooms').update({ distribution_status: 'failed', description: `Error: ${err.message}` }).eq('id', room.id);
-        results.push({ roomId: room.id, status: 'error', error: err.message });
+              }
+          }
       }
+
+      // --- B. PROSES HADIAH USER & XP USER ---
+      if (participantCount === 0) {
+          await supabase.from('rooms').update({ distribution_status: 'failed', description: 'No participants' }).eq('id', room.id);
+          return new Response(JSON.stringify({ message: 'Processed with no participants' }));
+      }
+
+      const transaction = new Transaction();
+      const totalReward = room.reward_token_amount || 0;
+      const winnersLog: any[] = [];
+      let totalPayoutNeeded = 0;
+
+      // Hanya ambil Top 3 Pemenang
+      const winners = participants.slice(0, 3);
+
+      // Loop pemenang untuk hitung XP dan Hadiah
+      for (let i = 0; i < winners.length; i++) {
+          const p = winners[i];
+          const rank = i + 1;
+          
+          // 1. Hitung XP User
+          let userXpEarned = XP_RATES.USER_JOIN;
+          if (Number(p.net_profit) > 0) userXpEarned += XP_RATES.USER_PROFIT;
+          if (rank === 1) userXpEarned += XP_RATES.USER_RANK_1;
+          else if (rank === 2) userXpEarned += XP_RATES.USER_RANK_2;
+          else if (rank === 3) userXpEarned += XP_RATES.USER_RANK_3;
+
+          if (p.user_id) {
+              await updateUserStats(p.user_id, userXpEarned, 'user', `rank_${rank}`, room.id);
+          }
+
+          // 2. Siapkan Transfer Hadiah SOL
+          const sharePercentage = REWARD_DISTRIBUTION[i];
+          const amountSOL = totalReward * sharePercentage;
+          const amountLamports = Math.floor(amountSOL * LAMPORTS_PER_SOL);
+
+          if (amountLamports > 0) {
+              totalPayoutNeeded += amountLamports;
+              console.log(`Plan transfer: ${amountSOL} SOL to ${p.wallet_address} (Rank ${rank})`);
+              
+              if (!SIMULATION_MODE) {
+                  transaction.add(
+                      SystemProgram.transfer({
+                          fromPubkey: adminKeypair.publicKey,
+                          toPubkey: new PublicKey(p.wallet_address),
+                          lamports: amountLamports,
+                      })
+                  );
+              }
+              
+              winnersLog.push({
+                  rank: rank,
+                  wallet: p.wallet_address,
+                  amount: amountSOL,
+                  user_id: p.user_id,
+                  roi: p.net_profit
+              });
+          }
+      }
+
+      // --- C. FINALISASI TRANSAKSI ---
+      let signature = `simulated_tx_${Math.random().toString(36).substring(7)}`;
+
+      // Cek Saldo Admin Lagi sebelum kirim (Safety Check)
+      if (totalPayoutNeeded > 0) {
+        if (adminBalance < (totalPayoutNeeded + 5000)) { // +5000 buat estimasi fee
+            throw new Error(`Insufficient Admin Balance. Need: ${totalPayoutNeeded}, Have: ${adminBalance}`);
+        }
+
+        if (!SIMULATION_MODE) {
+            console.log("🚀 Sending Real Transaction...");
+            signature = await sendAndConfirmTransaction(connection, transaction, [adminKeypair]);
+            console.log(`✅ Transaction Sent! Sig: ${signature}`);
+        } else {
+            console.log(`⚠️ SIMULATION MODE: Fake Sig: ${signature}`);
+        }
+      }
+
+      // Update Status Room jadi Distributed
+      await supabase.from('rooms').update({
+          distribution_status: 'distributed',
+          distribution_tx_hash: signature,
+          winners_info: winnersLog
+      }).eq('id', room.id);
+
+      results.push({ roomId: room.id, status: 'success', signature, mode: SIMULATION_MODE ? 'simulation' : 'live' });
+
+    } catch (err: any) {
+      console.error(`❌ Error processing room ${room.id}:`, err);
+      // Update status failed agar bisa diretry nanti atau diperiksa manual
+      await supabase.from('rooms').update({ distribution_status: 'failed', description: `Error: ${err.message}` }).eq('id', room.id);
+      results.push({ roomId: room.id, status: 'error', error: err.message });
     }
 
     return new Response(JSON.stringify({ success: true, processed: results }), { headers: { 'Content-Type': 'application/json' } });

@@ -401,7 +401,7 @@ export default function DashboardPage() {
                                 {profitVal >= 0 ? '+' : ''}{profitVal.toFixed(2)}%
                              </p>
                          </div>
-                         <button onClick={() => safeNavigate(`/lomba/${item.room_id}`)} className="p-4 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90"><ArrowUpRight size={20} /></button>
+                         <button onClick={() => safeNavigate(`/arena/${item.room_id}`)} className="p-4 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90"><ArrowUpRight size={20} /></button>
                      </div>
                    </div>
                  );
