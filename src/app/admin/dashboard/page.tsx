@@ -28,7 +28,9 @@ import {
   Edit, 
   Save,
   Ticket,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw,
+  Wrench // Ikon untuk tombol Fix
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
@@ -37,7 +39,6 @@ import { useLanguage } from '../../../lib/LanguageContext';
 import { LanguageSwitcher } from '../../../lib/LanguageSwitcher'; 
 
 // --- IMPORT KOMPONEN YANG SUDAH DIPISAH ---
-// Admin components
 import AdminSidebar from '../../../components/admin/AdminSidebar';
 import AdminStatCard from '../../../components/admin/AdminStatCard';
 
@@ -125,7 +126,8 @@ export default function CreatorDashboard() {
     min_balance: 0,
     entry_fee: 0, 
     room_password: '', 
-    whitelistInput: '' 
+    whitelistInput: '',
+    forceRetry: false 
   });
 
   const [paymentModal, setPaymentModal] = useState<{
@@ -369,25 +371,97 @@ export default function CreatorDashboard() {
     setEditingRoom(room);
     setEditForm({
       title: room.title,
-      description: room.description,
-      reward: room.reward,
+      description: room.description || '', // Ensure not null
+      reward: (room.reward_token_amount || parseFloat(room.reward) || 0).toString(),
       min_balance: room.min_balance,
       entry_fee: room.entry_fee || 0,
       room_password: room.room_password || '',
-      whitelistInput: room.whitelist ? room.whitelist.join(', ') : ''
+      whitelistInput: room.whitelist ? room.whitelist.join(', ') : '',
+      forceRetry: false 
     });
+  };
+
+  // --- FITUR BARU: MANUAL FIX (Untuk Kasus Uang Terkirim tapi Status Nyangkut) ---
+  const handleManualMarkDistributed = async () => {
+    if (!editingRoom || !supabase) return;
+
+    if (!confirm("⚠️ WARNING: Use this ONLY if SOL was already sent to winners but the status is stuck 'Processing' or 'Failed'.\n\nThis will mark the arena as 'Distributed' WITHOUT sending money again.\n\nContinue?")) return;
+
+    try {
+      const { error } = await supabase.from('rooms').update({
+          distribution_status: 'distributed',
+          // Menandai ini sebagai fix manual admin agar jelas di history
+          distribution_tx_hash: 'manual_fix_admin',
+          description: 'Manually marked as distributed by admin'
+        }).eq('id', editingRoom.id);
+
+      if (error) throw error;
+      triggerEventToast('db', "Status fixed manually!");
+      setEditingRoom(null);
+      fetchData();
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    }
   };
 
   const handleSaveEdit = async () => {
     if (!editingRoom || !supabase) return;
+
+    // --- FORM VALIDATION ---
+    if (editForm.description.length < 20) {
+      alert("Description & Rules must be at least 20 characters.");
+      return;
+    }
+
+    // --- CEK PERUBAHAN ---
+    const newReward = parseFloat(editForm.reward) || 0;
+    const oldReward = editingRoom.reward_token_amount || 0;
+    const newWhitelistStr = editForm.whitelistInput.split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 0).sort().join(',');
+    const oldWhitelistStr = (editingRoom.whitelist || []).slice().sort().join(',');
+
+    const hasChanges = 
+        editForm.title !== editingRoom.title ||
+        editForm.description !== (editingRoom.description || '') ||
+        newReward !== oldReward ||
+        editForm.min_balance !== editingRoom.min_balance ||
+        editForm.entry_fee !== (editingRoom.entry_fee || 0) ||
+        editForm.room_password !== (editingRoom.room_password || '') ||
+        newWhitelistStr !== oldWhitelistStr ||
+        editForm.forceRetry;
+
+    if (!hasChanges) {
+        alert("No changes detected. Save cancelled to preserve update quota.");
+        return;
+    }
+    
+    // --- Logika Hitung Biaya ---
+    const rewardDiff = newReward - oldReward; 
     const editCount = editingRoom.edit_count || 0;
     const isFreeEdit = editCount === 0;
-    let signature: string | null = "free_edit";
+    
+    let cost = 0;
+    let paymentNote = "";
 
     if (!isFreeEdit) {
-      if (!confirm(`Quota habis. Biaya edit: ${EDIT_FEE_SOL} SOL. Lanjut?`)) return;
-      signature = await performPayment(EDIT_FEE_SOL, "Edit Arena Fee");
+      cost += EDIT_FEE_SOL;
+      paymentNote += `Edit Fee: ${EDIT_FEE_SOL} SOL\n`;
+    }
+
+    if (rewardDiff > 0) {
+      cost += rewardDiff;
+      paymentNote += `Prize Top-up: ${rewardDiff.toFixed(2)} SOL\n`;
+    }
+
+    let signature: string | null = "free_edit_or_reduction";
+
+    if (cost > 0) {
+      if (!confirm(`${paymentNote}\nTotal Payment: ${cost.toFixed(2)} SOL. Proceed?`)) return;
+      signature = await performPayment(cost, "Update Arena & Topup");
       if (!signature) return;
+    } else {
+        if (rewardDiff < 0) {
+            if(!confirm(`You are reducing the reward by ${Math.abs(rewardDiff)} SOL. Note: Refunds are not automatic. Proceed?`)) return;
+        }
     }
 
     const whitelistArray = editForm.whitelistInput.length > 0 
@@ -395,23 +469,40 @@ export default function CreatorDashboard() {
       : null;
 
     try {
+      // --- LOGIKA RESET STATUS (AUTO-RETRY AMAN) ---
+      let statusToUpdate = editingRoom.distribution_status;
+
+      // HANYA reset jika statusnya GAGAL. Jangan reset jika 'processing' (takut double spend)
+      if (editForm.forceRetry || 
+          editingRoom.distribution_status === 'failed' || 
+         (editingRoom.distribution_status === 'distributed' && editingRoom.distribution_tx_hash === 'no_payout_dust_limit')) {
+          statusToUpdate = 'pending';
+      }
+
       const { error } = await supabase.from('rooms').update({
           title: editForm.title,
-          description: editForm.description,
-          reward: editForm.reward,
+          description: editForm.description, 
+          
+          reward: `${newReward} SOL`, 
+          reward_token_amount: newReward,
+
           min_balance: editForm.min_balance,
           entry_fee: editForm.entry_fee,
           room_password: editForm.room_password || null, 
           whitelist: whitelistArray, 
-          edit_count: editCount + 1 
+          edit_count: editCount + 1,
+          
+          distribution_status: statusToUpdate,
+          description: statusToUpdate === 'pending' ? null : editingRoom.description,
+          distribution_tx_hash: statusToUpdate === 'pending' ? null : editingRoom.distribution_tx_hash
         }).eq('id', editingRoom.id);
 
       if (error) throw error;
-      triggerEventToast('db', "Arena updated!");
+      triggerEventToast('db', "Arena updated successfully!");
       setEditingRoom(null);
       fetchData();
     } catch (err: any) {
-      alert("Error: " + err.message);
+      alert("Error saving changes: " + err.message);
     }
   };
 
@@ -457,11 +548,11 @@ export default function CreatorDashboard() {
 
   const getStatusBadge = (status: string, endTime: string) => {
     const isEnded = endTime ? new Date(endTime) < new Date() : false;
-    if (status === 'distributed') return <span className="flex items-center gap-1 text-[#0ECB81] text-[10px] font-bold"><CheckCircle size={12} /> Cair</span>;
-    if (status === 'processing') return <span className="flex items-center gap-1 text-[#FCD535] text-[10px] font-bold"><Loader2 size={12} className="animate-spin" /> Proses</span>;
-    if (status?.includes('failed')) return <span className="flex items-center gap-1 text-[#F6465D] text-[10px] font-bold"><AlertCircle size={12} /> Gagal</span>;
-    if (status === 'pending' && isEnded) return <span className="flex items-center gap-1 text-[#848E9C] text-[10px] font-bold"><History size={12} /> Antri</span>;
-    return <span className="flex items-center gap-1 text-[#2B3139] text-[10px] font-bold"><Activity size={12} /> Aktif</span>;
+    if (status === 'distributed') return <span className="flex items-center gap-1 text-[#0ECB81] text-[10px] font-bold"><CheckCircle size={12} /> Paid</span>;
+    if (status === 'processing') return <span className="flex items-center gap-1 text-[#FCD535] text-[10px] font-bold"><Loader2 size={12} className="animate-spin" /> Processing</span>;
+    if (status?.includes('failed')) return <span className="flex items-center gap-1 text-[#F6465D] text-[10px] font-bold"><AlertCircle size={12} /> Failed</span>;
+    if (status === 'pending' && isEnded) return <span className="flex items-center gap-1 text-[#848E9C] text-[10px] font-bold"><History size={12} /> Queue</span>;
+    return <span className="flex items-center gap-1 text-[#2B3139] text-[10px] font-bold"><Activity size={12} /> Active</span>;
   };
 
   if (isLoading) {
@@ -498,11 +589,12 @@ export default function CreatorDashboard() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">{t.create_arena.description}</label>
+                  <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">Description & Rules</label>
                   <textarea 
                     value={editForm.description} 
                     onChange={e => setEditForm({...editForm, description: e.target.value})}
                     className="w-full bg-[#0B0E11] p-3 rounded-xl border border-[#2B3139] focus:border-[#FCD535] outline-none text-xs font-medium text-[#EAECEF] min-h-[100px]"
+                    required
                   />
                 </div>
                 
@@ -510,6 +602,8 @@ export default function CreatorDashboard() {
                   <div>
                     <label className="text-[10px] font-black text-[#474D57] uppercase tracking-widest ml-1">{t.create_arena.reward}</label>
                     <input 
+                      type="number"
+                      step="0.01"
                       value={editForm.reward} 
                       onChange={e => setEditForm({...editForm, reward: e.target.value})}
                       className="w-full bg-[#0B0E11] p-3 rounded-xl border border-[#2B3139] focus:border-[#FCD535] outline-none text-sm font-bold text-[#EAECEF]"
@@ -564,6 +658,7 @@ export default function CreatorDashboard() {
                 )}
               </div>
 
+              {/* FOOTER ACTIONS */}
               <div className="mt-8 pt-6 border-t border-[#2B3139] flex items-center justify-between">
                 <div className="text-xs">
                   <span className="text-[#848E9C]">Status Edit: </span>
@@ -571,12 +666,26 @@ export default function CreatorDashboard() {
                     {(editingRoom.edit_count || 0) === 0 ? 'Free (1x)' : `Paid (${EDIT_FEE_SOL} SOL)`}
                   </span>
                 </div>
-                <button 
-                  onClick={handleSaveEdit}
-                  className="px-6 py-3 bg-[#FCD535] text-black rounded-xl font-black text-xs uppercase tracking-widest hover:bg-[#F0B90B] transition-all flex items-center gap-2"
-                >
-                  <Save size={16} /> Save Changes
-                </button>
+                
+                <div className="flex gap-2">
+                   {/* TOMBOL FIX MANUAL (Hanya muncul jika nyangkut) */}
+                   {(editingRoom.distribution_status === 'processing' || editingRoom.distribution_status?.includes('failed')) && (
+                      <button 
+                        type="button"
+                        onClick={handleManualMarkDistributed}
+                        className="px-4 py-3 bg-[#1E2329] border border-[#2B3139] text-[#848E9C] hover:text-white rounded-xl font-bold text-xs uppercase tracking-widest transition-all hover:bg-red-500/20 hover:border-red-500/50 flex items-center gap-2"
+                        title="Use this ONLY if money was sent but status is stuck"
+                      >
+                        <Wrench size={14} /> Fix Status
+                      </button>
+                   )}
+                   <button 
+                    onClick={handleSaveEdit}
+                    className="px-6 py-3 bg-[#FCD535] text-black rounded-xl font-black text-xs uppercase tracking-widest hover:bg-[#F0B90B] transition-all flex items-center gap-2"
+                   >
+                    <Save size={16} /> Save Changes
+                   </button>
+                </div>
               </div>
             </div>
           </div>
@@ -600,12 +709,12 @@ export default function CreatorDashboard() {
                  <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-2 leading-none">{paymentModal.title}</h3>
                  <p className="text-xs text-[#848E9C] leading-relaxed mb-6 font-medium">{paymentModal.description}</p>
                  <div className="space-y-3 mb-8">
-                    {paymentModal.benefits.map((benefit, idx) => (
-                       <div key={idx} className="flex items-center gap-3 text-sm text-[#EAECEF]">
-                          <CheckCircle size={14} className={paymentModal.type === 'boost' ? 'text-[#FCD535]' : 'text-[#F6465D]'} />
-                          <span className="font-bold">{benefit}</span>
-                       </div>
-                    ))}
+                   {paymentModal.benefits.map((benefit, idx) => (
+                      <div key={idx} className="flex items-center gap-3 text-sm text-[#EAECEF]">
+                         <CheckCircle size={14} className={paymentModal.type === 'boost' ? 'text-[#FCD535]' : 'text-[#F6465D]'} />
+                         <span className="font-bold">{benefit}</span>
+                      </div>
+                   ))}
                  </div>
                  <div className="flex items-center justify-between bg-[#0B0E11] p-4 rounded-xl border border-[#2B3139] mb-6">
                     <div className="flex items-center gap-3">
@@ -613,12 +722,12 @@ export default function CreatorDashboard() {
                        <span className="text-xs font-black uppercase text-[#848E9C] tracking-widest">Total Cost</span>
                     </div>
                     <div className={`text-xl font-black italic tracking-tighter ${paymentModal.type === 'boost' ? 'text-[#FCD535]' : 'text-[#F6465D]'}`}>
-                       {paymentModal.cost} SOL
+                       {paymentModal.cost.toFixed(2)} SOL
                     </div>
                  </div>
                  <button 
-                    onClick={handleConfirmPayment}
-                    className={`w-full py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all active:scale-95 shadow-xl flex items-center justify-center gap-2 ${paymentModal.type === 'boost' ? 'bg-[#FCD535] text-black hover:bg-[#F0B90B] shadow-[#FCD535]/20' : 'bg-[#F6465D] text-white hover:bg-[#D9344A] shadow-[#F6465D]/20'}`}
+                   onClick={handleConfirmPayment}
+                   className={`w-full py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all active:scale-95 shadow-xl flex items-center justify-center gap-2 ${paymentModal.type === 'boost' ? 'bg-[#FCD535] text-black hover:bg-[#F0B90B] shadow-[#FCD535]/20' : 'bg-[#F6465D] text-white hover:bg-[#D9344A] shadow-[#F6465D]/20'}`}
                  >
                     <Zap size={16} fill="currentColor" /> Confirm & Pay
                  </button>
@@ -868,11 +977,10 @@ export default function CreatorDashboard() {
                       )}
 
                       <div className="mb-4 flex flex-col gap-2">
-                         {/* Status Reward */}
-                         <div className="text-xs font-bold text-[#EAECEF] flex items-center justify-between">
-                            <span className="text-[#848E9C]">Reward Status:</span>
-                            {getStatusBadge(room.distribution_status || 'pending', room.end_time || '')}
-                         </div>
+                          <div className="text-xs font-bold text-[#EAECEF] flex items-center justify-between">
+                             <span className="text-[#848E9C]">Reward Status:</span>
+                             {getStatusBadge(room.distribution_status || 'pending', room.end_time || '')}
+                          </div>
                       </div>
 
                       <p className="text-xs text-[#848E9C] font-medium italic mb-6 line-clamp-3 leading-relaxed flex-1">{room.description}</p>

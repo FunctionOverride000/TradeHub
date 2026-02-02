@@ -520,7 +520,7 @@ export default function ArenaDetailPage() {
           >
             {/* Fallback ke Share2 jika Twitter icon tidak ada */}
             <Share2 size={16} className="group-hover:rotate-12 transition-transform" />
-            <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline-block">Share on X</span>
+            <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline-block">Share on 𝕏</span>
           </button>
         </div>
 

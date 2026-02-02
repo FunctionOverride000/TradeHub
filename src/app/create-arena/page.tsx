@@ -173,7 +173,9 @@ export default function CreateArenaPage() {
       setStatus('paying');
       setErrorMsg(null);
       
+      // CRITICAL STEP: Connect Wallet
       const resp = await provider.connect();
+      
       const senderPublicKey = resp.publicKey;
       const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
 
@@ -205,10 +207,20 @@ export default function CreateArenaPage() {
     } catch (err: any) {
       console.error("Payment Error:", err);
       setStatus('error');
-      if (err.message && (err.message.includes("disconnected port") || err.message.includes("connection not established"))) {
-         setErrorMsg("Wallet Connection Lost. Please Refresh (F5).");
+      
+      const msg = err.message || "";
+      
+      // --- IMPROVED ERROR HANDLING ---
+      // Menangkap error umum "Unexpected error" atau "disconnected" dari Phantom
+      if (
+        msg.includes("disconnected port") || 
+        msg.includes("connection not established") || 
+        msg.includes("Unexpected error") ||
+        msg.includes("Something went wrong")
+      ) {
+         setErrorMsg("Wallet connection unstable. Please Refresh the page (F5).");
       } else {
-         setErrorMsg(err.message || "Transaction cancelled or failed.");
+         setErrorMsg(msg || "Transaction cancelled or failed.");
       }
       return null;
     }
@@ -233,8 +245,15 @@ export default function CreateArenaPage() {
        return;
     }
 
-    // --- DATE VALIDATION (CRITICAL FIX) ---
-    // Pastikan user tidak membuat lomba yang sudah berakhir di masa lalu
+    // --- NEW VALIDATION: MINIMUM REWARD ---
+    // Mencegah masalah 'Dust Limit' (hadiah terlalu kecil tidak terkirim)
+    if (rewardVal > 0 && rewardVal < 0.01) {
+        setStatus('error');
+        setErrorMsg("Minimum reward is 0.01 SOL to ensure successful blockchain payout.");
+        return;
+    }
+
+    // --- DATE VALIDATION ---
     if (!formData.start_date || !formData.end_date) {
         setStatus('error');
         setErrorMsg("Please select both start and end dates.");
@@ -242,7 +261,8 @@ export default function CreateArenaPage() {
     }
 
     const startTimestamp = new Date(`${formData.start_date}T00:00:00`).toISOString();
-    const endTimestamp = new Date(`${formData.end_date}T23:59:59`).toISOString(); // Akhir hari
+    // End time diset ke akhir hari (23:59:59)
+    const endTimestamp = new Date(`${formData.end_date}T23:59:59`).toISOString(); 
     const now = new Date();
 
     // 1. End date must be AFTER Start date
@@ -253,7 +273,6 @@ export default function CreateArenaPage() {
     }
 
     // 2. End date CANNOT be in the past
-    // Kita beri buffer sedikit untuk zona waktu, tapi intinya harus masa depan
     if (new Date(endTimestamp) < now) {
         setStatus('error');
         setErrorMsg("End date cannot be in the past. The arena would close immediately.");
@@ -273,7 +292,7 @@ export default function CreateArenaPage() {
         : null;
 
       // 3. Insert to Database
-      const { error } = await supabase.from('rooms').insert([
+      const { error, data } = await supabase.from('rooms').insert([
         { 
           title: formData.title,
           description: formData.description,
@@ -301,14 +320,14 @@ export default function CreateArenaPage() {
           payment_signature: paymentResult.signature,
           price_paid: totalCost, 
           edit_count: 0
-          
-          // FIX: Menghapus field 'status' karena tidak ada di schema database
-          // Status 'distribution_status' sudah cukup untuk logic backend
         }
-      ]);
+      ]).select().single();
 
       if (error) throw error;
       setStatus('success');
+      
+      // Optional: Redirect after success if you want
+      // window.location.href = `/arena/${data.id}`;
 
     } catch (err: any) {
       setStatus('error');
