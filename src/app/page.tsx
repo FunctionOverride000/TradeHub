@@ -36,16 +36,10 @@ import {
   Link2
 } from 'lucide-react';
 
-import { createClient } from '@supabase/supabase-js';
-import { useLanguage } from '../lib/LanguageContext';
-
-// --- KONFIGURASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-const supabase = (supabaseUrl && supabaseAnonKey) 
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+// FIX: Import helper client yang benar (Cookie-based)
+import { createClient } from '@/lib/supabase';
+import { useLanguage } from '@/lib/LanguageContext';
+import { useRouter } from 'next/navigation';
 
 // --- TYPE DEFINITIONS ---
 interface Room {
@@ -66,12 +60,11 @@ interface Room {
 
 interface GlobalStats {
   activeArenas: number;
-  globalSolanaVolume: number; // Dalam USD atau SOL
-  globalActiveTraders: number; // Estimasi Populasi Trader
+  globalSolanaVolume: number; 
+  globalActiveTraders: number; 
 }
 
 // --- UTILS COMPONENT: SPOTLIGHT CARD ---
-// Mouse-following border effect for premium feel
 const SpotlightCard = ({ children, className = "", onClick, isBoosted = false }: any) => {
   const divRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -116,9 +109,8 @@ const AnimatedCounter = ({ value, prefix = "", suffix = "", decimals = 0 }: { va
     const end = value;
     if (start === end) return;
 
-    // Total animation duration (ms)
     const totalDuration = 2000;
-    const incrementTime = 16; // ~60fps
+    const incrementTime = 16; 
     const steps = totalDuration / incrementTime;
     const increment = end / steps;
 
@@ -144,6 +136,10 @@ const AnimatedCounter = ({ value, prefix = "", suffix = "", decimals = 0 }: { va
 
 export default function LandingPage() {
   const { t } = useLanguage();
+  const router = useRouter();
+  // Init client supabase
+  const supabase = createClient();
+  
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -157,39 +153,37 @@ export default function LandingPage() {
   // Global stats (simulated Solana data)
   const [stats, setStats] = useState<GlobalStats>({
     activeArenas: 0,
-    globalSolanaVolume: 2450000000, // Mulai dari 2.4B
-    globalActiveTraders: 15400000, // Mulai dari 15.4M
+    globalSolanaVolume: 2450000000, 
+    globalActiveTraders: 15400000, 
   });
 
   const safeNavigate = (path: string) => {
-    window.location.href = path;
+    router.push(path);
   };
 
-  // 1. Auth Sync
+  // 1. Auth Sync - Cek user session saat load
   useEffect(() => {
-    if (!supabase) return;
     const getSession = async () => {
-        const { data } = await supabase.auth.getSession();
-        setUser(data.session?.user || null);
+        const { data: { user } } = await supabase.auth.getUser();
+        setUser(user);
     };
     getSession();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user || null));
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        setUser(session?.user || null);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Navbar scroll logic (hide on scroll down, show on scroll up)
+  // 2. Navbar scroll logic
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      
-      // Threshold to prevent jitter at top
       if (currentScrollY < 50) {
         setIsNavVisible(true);
       } else if (currentScrollY > lastScrollY) {
-        // Scrolling down
         setIsNavVisible(false);
       } else {
-        // Scrolling up
         setIsNavVisible(true);
       }
       setLastScrollY(currentScrollY);
@@ -199,10 +193,8 @@ export default function LandingPage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [lastScrollY]);
 
-  // 3. Data fetching (Arenas + simulated global stats)
+  // 3. Data fetching
   const fetchData = async () => {
-    if (!supabase) { setIsLoading(false); return; }
-
     try {
       const { data: roomData, error: roomError } = await supabase
         .from('rooms')
@@ -226,14 +218,13 @@ export default function LandingPage() {
 
       setRooms(sortedRooms);
 
-      // Simulate live global data update
       const randomVolFluctuation = Math.floor(Math.random() * 50000000);
       const randomUserFluctuation = Math.floor(Math.random() * 5000);
 
       setStats(prev => ({
         activeArenas: roomData?.length || 0,
-        globalSolanaVolume: 2450000000 + randomVolFluctuation, // ~ $2.5B
-        globalActiveTraders: 15400000 + randomUserFluctuation // ~ 15.4M
+        globalSolanaVolume: 2450000000 + randomVolFluctuation, 
+        globalActiveTraders: 15400000 + randomUserFluctuation 
       }));
 
     } catch (err) {
@@ -245,7 +236,6 @@ export default function LandingPage() {
 
   useEffect(() => {
     fetchData();
-    // Refresh simulated stats every 5 seconds
     const interval = setInterval(() => {
       setStats(prev => ({
         ...prev,
@@ -254,14 +244,11 @@ export default function LandingPage() {
       }));
     }, 5000);
 
-    if (supabase) {
-        const roomChannel = supabase.channel('landing-rooms').on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => fetchData()).subscribe();
-        return () => { 
-            clearInterval(interval);
-            supabase.removeChannel(roomChannel); 
-        };
-    }
-    return () => clearInterval(interval);
+    const roomChannel = supabase.channel('landing-rooms').on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => fetchData()).subscribe();
+    return () => { 
+        clearInterval(interval);
+        supabase.removeChannel(roomChannel); 
+    };
   }, []);
 
   const getArenaStatusUI = (start: string, end: string) => {
@@ -303,11 +290,10 @@ export default function LandingPage() {
 
       {/* Background effects */}
       <div className="fixed inset-0 pointer-events-none z-0">
-          {/* Noise texture untuk kesan matte/doff */}
           <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 brightness-100 contrast-150 mix-blend-overlay"></div>
       </div>
 
-      {/* NAVBAR (SMART SCROLL & TRANSPARENT) */}
+      {/* NAVBAR */}
       <nav 
         className={`fixed top-0 left-0 w-full z-[100] transition-transform duration-500 ease-in-out border-b border-[#2B3139]/50
           ${isNavVisible ? 'translate-y-0' : '-translate-y-full'}
@@ -331,6 +317,7 @@ export default function LandingPage() {
 
           <div className="flex items-center gap-4">
             {user ? (
+              // JIKA USER LOGIN: TAMPILKAN TOMBOL DASHBOARD & PROFIL
               <div className="flex items-center gap-3">
                 <button onClick={() => safeNavigate('/admin/dashboard')} className="hidden lg:flex items-center gap-2 px-5 py-2.5 bg-[#1E2329] text-[#FCD535] rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-[#2B3139] border border-[#FCD535]/20 transition-all active:scale-95 shadow-inner hover:shadow-[#FCD535]/10 hover:border-[#FCD535]/50">
                   <Shield size={14} /> {t.common.creator_hub}
@@ -343,6 +330,7 @@ export default function LandingPage() {
                 </button>
               </div>
             ) : (
+              // JIKA USER BELUM LOGIN: TAMPILKAN TOMBOL LOGIN
               <button onClick={() => safeNavigate('/auth')} className="hidden lg:block px-8 py-2.5 bg-[#1E2329] border border-[#2B3139] text-white rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-[#2B3139] hover:border-white/20 transition-all active:scale-95">
                 {t.common.login}
               </button>
@@ -388,10 +376,9 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero section */}
-      {/* Hero section */}
       <header className="relative pt-24 lg:pt-36 pb-24 lg:pb-48 overflow-hidden text-center z-10">
         
-        {/* GRID BACKGROUND - Ditingkatkan visibilitasnya */}
+        {/* GRID BACKGROUND */}
         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:40px_40px] opacity-100 pointer-events-none [mask-image:linear-gradient(to_bottom,black_40%,transparent_100%)]"></div>
         
         {/* Glow center */}
@@ -411,7 +398,7 @@ export default function LandingPage() {
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FCD535] to-[#F0B90B] relative inline-block">
                 {t.landing.title_2}
                 
-                {/* --- ANIMASI RANTAI (ON-CHAIN) - CLICKABLE --- */}
+                {/* --- ANIMASI RANTAI (ON-CHAIN) --- */}
                 <a 
                     href="https://solscan.io/account/DLmtgDL1viNJUBzZvd91cLVkdKz4YkivCSpNKNKe6oLg"
                     target="_blank"
@@ -420,9 +407,7 @@ export default function LandingPage() {
                     title="View On-Chain"
                 >
                     <div className="relative w-16 h-16 lg:w-24 lg:h-24">
-                        {/* Link 1 (Atas) */}
                         <Link2 className="absolute top-0 left-0 w-8 h-8 lg:w-12 lg:h-12 text-[#FCD535] animate-chain-float" style={{ animationDelay: '0s' }} />
-                        {/* Link 2 (Bawah - Terhubung) */}
                         <Link2 className="absolute top-4 left-4 lg:top-7 lg:left-7 w-8 h-8 lg:w-12 lg:h-12 text-[#F0B90B] animate-chain-float" style={{ animationDelay: '1s' }} />
                     </div>
                 </a>
@@ -436,31 +421,39 @@ export default function LandingPage() {
           
           <div className="flex flex-col items-center gap-8 animate-in fade-in slide-in-from-bottom-16 duration-1000 delay-300">
               <div className="flex flex-col sm:flex-row gap-5 w-full sm:w-auto px-4 sm:px-0">
-                 <button onClick={() => safeNavigate('/create-arena')} className="w-full sm:w-auto px-12 py-5 bg-[#FCD535] text-black rounded-[1.5rem] font-black uppercase text-xs tracking-widest hover:bg-[#ffe066] transition-all flex items-center justify-center gap-3 active:scale-95 shadow-xl shadow-[#FCD535]/20 hover:shadow-[#FCD535]/40 group relative overflow-hidden">
-                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 blur-md"></div>
-                    <span className="relative flex items-center gap-3">{t.landing.cta_create} <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" /></span>
-                 </button>
-                 <button onClick={() => safeNavigate('/hall-of-fame')} className="w-full sm:w-auto px-12 py-5 bg-[#1E2329] text-white border border-[#2B3139] rounded-[1.5rem] font-black uppercase text-xs tracking-widest hover:bg-[#2B3139] hover:border-[#FCD535]/50 transition-all flex items-center justify-center gap-3 active:scale-95 group">
+                  {/* CTA BUTTON LOGIC */}
+                  {!user ? (
+                    <button onClick={() => safeNavigate('/auth')} className="w-full sm:w-auto px-12 py-5 bg-[#FCD535] text-black rounded-[1.5rem] font-black uppercase text-xs tracking-widest hover:bg-[#ffe066] transition-all flex items-center justify-center gap-3 active:scale-95 shadow-xl shadow-[#FCD535]/20 hover:shadow-[#FCD535]/40 group relative overflow-hidden">
+                       <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 blur-md"></div>
+                       <span className="relative flex items-center gap-3">{t.landing.cta_create} <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></span>
+                    </button>
+                  ) : (
+                    <button onClick={() => safeNavigate('/dashboard')} className="w-full sm:w-auto px-12 py-5 bg-[#FCD535] text-black rounded-[1.5rem] font-black uppercase text-xs tracking-widest hover:bg-[#ffe066] transition-all flex items-center justify-center gap-3 active:scale-95 shadow-xl shadow-[#FCD535]/20 hover:shadow-[#FCD535]/40 group relative overflow-hidden">
+                       <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 blur-md"></div>
+                       <span className="relative flex items-center gap-3">{t.common.dashboard} <LayoutDashboard size={18} /></span>
+                    </button>
+                  )}
+                  
+                  <button onClick={() => safeNavigate('/hall-of-fame')} className="w-full sm:w-auto px-12 py-5 bg-[#1E2329] text-white border border-[#2B3139] rounded-[1.5rem] font-black uppercase text-xs tracking-widest hover:bg-[#2B3139] hover:border-[#FCD535]/50 transition-all flex items-center justify-center gap-3 active:scale-95 group">
                     {t.landing.cta_rank} <Star size={18} className="text-[#848E9C] group-hover:text-[#FCD535] transition-colors" />
-                 </button>
+                  </button>
               </div>
               
               <div className="flex items-center gap-6 opacity-60 hover:opacity-100 transition-opacity duration-500">
-                 <p className="text-[9px] font-black text-[#474D57] uppercase tracking-[0.4em] flex items-center gap-2">
+                  <p className="text-[9px] font-black text-[#474D57] uppercase tracking-[0.4em] flex items-center gap-2">
                     <ShieldCheck size={12} className="text-[#0ECB81]" /> {t.landing.audit}
-                 </p>
-                 <div className="h-1 w-1 rounded-full bg-[#474D57]"></div>
-                 <p className="text-[9px] font-black text-[#474D57] uppercase tracking-[0.4em] flex items-center gap-2">
+                  </p>
+                  <div className="h-1 w-1 rounded-full bg-[#474D57]"></div>
+                  <p className="text-[9px] font-black text-[#474D57] uppercase tracking-[0.4em] flex items-center gap-2">
                     <Zap size={12} className="text-[#FCD535]" /> Instant Payout
-                 </p>
+                  </p>
               </div>
           </div>
         </div>
       </header>
 
-      {/* --- STATS SECTION (GLOBAL DATA) --- */}
+      {/* --- STATS SECTION --- */}
       <section className="border-y border-[#2B3139] bg-[#181A20]/40 backdrop-blur-md relative overflow-hidden">
-        {/* Subtle glow effect */}
         <div className="absolute inset-0 bg-[#FCD535]/5 blur-3xl opacity-10 pointer-events-none"></div>
         <div className="max-w-7xl mx-auto px-6 py-16 lg:py-24 grid grid-cols-2 md:grid-cols-4 gap-12 lg:gap-16 text-center relative z-10">
           
@@ -494,26 +487,25 @@ export default function LandingPage() {
       {/* --- POWERED BY SECTION --- */}
       <section className="py-20 lg:py-28 bg-[#0B0E11] border-b border-[#2B3139] relative overflow-hidden group">
         <div className="max-w-7xl mx-auto px-8 relative z-10">
-           <div className="flex flex-col items-center gap-12">
+            <div className="flex flex-col items-center gap-12">
               <div className="flex items-center gap-4">
-                 <div className="h-px w-12 bg-gradient-to-r from-transparent to-[#474D57]"></div>
-                 <p className="text-[10px] font-black uppercase tracking-[0.5em] text-[#474D57] whitespace-nowrap group-hover:text-[#848E9C] transition-colors">{t.landing.powered}</p>
-                 <div className="h-px w-12 bg-gradient-to-l from-transparent to-[#474D57]"></div>
+                  <div className="h-px w-12 bg-gradient-to-r from-transparent to-[#474D57]"></div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.5em] text-[#474D57] whitespace-nowrap group-hover:text-[#848E9C] transition-colors">{t.landing.powered}</p>
+                  <div className="h-px w-12 bg-gradient-to-l from-transparent to-[#474D57]"></div>
               </div>
               <div className="flex flex-wrap justify-center items-center gap-12 lg:gap-24 grayscale opacity-40 hover:grayscale-0 hover:opacity-100 transition-all duration-1000">
-                 <PartnerLogo name="Solana" img="/solana.png" />
-                 <PartnerLogo name="Alchemy" img="/alchemy.jpeg" />
-                 <PartnerLogo name="Phantom" img="/phantom.png" />
-                 <PartnerLogo name="Helius" img="/helius.png" />
-                 <PartnerLogo name="GMGN.AI" img="/gmgn.png" />
+                  <PartnerLogo name="Solana" img="/solana.png" />
+                  <PartnerLogo name="Alchemy" img="/alchemy.jpeg" />
+                  <PartnerLogo name="Phantom" img="/phantom.png" />
+                  <PartnerLogo name="Helius" img="/helius.png" />
+                  <PartnerLogo name="GMGN.AI" img="/gmgn.png" />
               </div>
-           </div>
+            </div>
         </div>
       </section>
 
       {/* --- MECHANISM SECTION --- */}
       <section id="how-it-works" className="py-28 lg:py-48 bg-[#0B0E11] border-b border-[#2B3139] relative overflow-hidden">
-        {/* Glow biru yang sangat soft di pinggir */}
         <div className="absolute top-1/4 right-0 w-[600px] h-[600px] bg-blue-600/5 rounded-full blur-[150px] pointer-events-none animate-pulse-glow"></div>
         <div className="max-w-7xl mx-auto px-6 relative z-10">
           <div className="text-center mb-24 lg:mb-32 px-4">
@@ -628,21 +620,21 @@ export default function LandingPage() {
 
               {/* EXPLORE BUTTON */}
               <div className="mt-20 flex flex-col items-center animate-in fade-in slide-in-from-top-4 duration-1000">
-                 {filteredRooms.length > 2 && (
-                   <div className="mb-6 p-4 bg-[#1E2329] border border-[#2B3139] rounded-2xl flex items-center gap-4 shadow-xl">
-                      <div className="w-10 h-10 rounded-xl bg-[#FCD535]/10 flex items-center justify-center text-[#FCD535] border border-[#FCD535]/20">
-                         <Search size={18} />
-                      </div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-[#848E9C]">{t.landing.active_arenas.more.replace('{count}', (filteredRooms.length - 2).toString())}</p>
-                   </div>
-                 )}
-                 <button 
-                   onClick={() => safeNavigate('/arenas')} 
-                   className="px-12 py-6 bg-[#FCD535] text-black rounded-[2rem] font-black uppercase text-xs tracking-[0.3em] hover:bg-[#ffe066] transition-all flex items-center justify-center gap-4 active:scale-95 shadow-2xl shadow-[#FCD535]/20 group relative overflow-hidden"
-                 >
-                   <span className="relative z-10 flex items-center gap-4">EXPLORE ARENAS <Trophy size={20} className="group-hover:rotate-12 transition-transform" /></span>
-                   <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 blur-md"></div>
-                 </button>
+                  {filteredRooms.length > 2 && (
+                    <div className="mb-6 p-4 bg-[#1E2329] border border-[#2B3139] rounded-2xl flex items-center gap-4 shadow-xl">
+                       <div className="w-10 h-10 rounded-xl bg-[#FCD535]/10 flex items-center justify-center text-[#FCD535] border border-[#FCD535]/20">
+                          <Search size={18} />
+                       </div>
+                       <p className="text-[10px] font-black uppercase tracking-widest text-[#848E9C]">{t.landing.active_arenas.more.replace('{count}', (filteredRooms.length - 2).toString())}</p>
+                    </div>
+                  )}
+                  <button 
+                    onClick={() => safeNavigate('/arenas')} 
+                    className="px-12 py-6 bg-[#FCD535] text-black rounded-[2rem] font-black uppercase text-xs tracking-[0.3em] hover:bg-[#ffe066] transition-all flex items-center justify-center gap-4 active:scale-95 shadow-2xl shadow-[#FCD535]/20 group relative overflow-hidden"
+                  >
+                    <span className="relative z-10 flex items-center gap-4">EXPLORE ARENAS <Trophy size={20} className="group-hover:rotate-12 transition-transform" /></span>
+                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 blur-md"></div>
+                  </button>
               </div>
             </>
           )}

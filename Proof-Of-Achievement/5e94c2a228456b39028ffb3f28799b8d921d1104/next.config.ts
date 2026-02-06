@@ -14,8 +14,9 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'pbs.twimg.com' },             // Twitter Images
     ],
   },
+
   /*
-   * PENTING UNTUK DEPLOY PERTAMA:
+   * PENTING UNTUK DEPLOYMENT:
    * Mengabaikan warning ESLint & TypeScript error kecil agar build di Vercel tidak gagal 
    * hanya karena masalah styling kode atau tipe data minor.
    */
@@ -24,7 +25,7 @@ const nextConfig: NextConfig = {
   },
   typescript: {
     ignoreBuildErrors: true,
-  }
+  },
 };
 
 export default nextConfig;

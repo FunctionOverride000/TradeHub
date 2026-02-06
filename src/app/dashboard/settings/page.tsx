@@ -21,26 +21,24 @@ import {
   Trash2,
   Smartphone,
   Download,
-  CheckCircle // <-- Ditambahkan di sini
+  CheckCircle 
 } from 'lucide-react';
 
-import { createClient } from '@supabase/supabase-js';
+// FIX: Import createClient from local helper
+import { createClient } from '@/lib/supabase';
 import { useLanguage } from '@/lib/LanguageContext';
 import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
+import { useRouter } from 'next/navigation'; // FIX: Use standard Next.js router
 
 // --- IMPORT COMPONENT BARU ---
 import UserSidebar from '@/components/dashboard/UserSidebar';
 
-// --- INISIALISASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-const supabase = (supabaseUrl && supabaseAnonKey) 
-  ? createClient(supabaseUrl, supabaseAnonKey) 
-  : null;
+// Initialize Supabase using the helper (cookie-based)
+const supabase = createClient();
 
 export default function SettingsPage() {
   const { t } = useLanguage();
+  const router = useRouter(); // FIX: Initialize router
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -75,7 +73,7 @@ export default function SettingsPage() {
   const [uiMessage, setUiMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
 
   const safeNavigate = (path: string) => {
-    window.location.href = path;
+    router.push(path); // FIX: Use router.push for smooth navigation
   };
 
   const showMsg = (text: string, type: 'success' | 'error' = 'success') => {
@@ -86,51 +84,41 @@ export default function SettingsPage() {
   // 1. Sinkronisasi Sesi & Cek Status MFA
   useEffect(() => {
     const init = async () => {
-      if (!supabase) {
-          setIsLoading(false);
-          return;
-      }
-
       try {
-        const { data: { user }, error } = await supabase.auth.getUser();
+        const { data: { session }, error } = await supabase.auth.getSession();
         
-        if (error || !user) {
-          console.warn("Session expired or invalid, redirecting to auth:", error?.message);
-          await supabase.auth.signOut(); 
-          safeNavigate('/auth');
-          return;
+        if (error || !session) {
+          // safeNavigate('/auth'); // Removed automatic redirect on load
+           router.replace('/auth');
+           return;
         }
 
-        setUser(user);
-        setEmail(user.email || "");
-        setFullName(user.user_metadata?.full_name || "");
+        setUser(session.user);
+        setEmail(session.user.email || "");
+        setFullName(session.user.user_metadata?.full_name || "");
         
-        setIsNotifActive(user.user_metadata?.notif_active !== false);
+        setIsNotifActive(session.user.user_metadata?.notif_active !== false);
 
         await checkMFAStatus();
       } catch (err) {
         console.error("Gagal memuat sesi:", err);
-        safeNavigate('/auth');
       } finally {
         setIsLoading(false);
       }
     };
     init();
 
-    if (supabase) {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          if (event === 'SIGNED_OUT' || !session) {
-             safeNavigate('/auth');
-          } else if (event === 'TOKEN_REFRESHED') {
-             setUser(session.user);
-          }
-        });
-        return () => subscription.unsubscribe();
-    }
-  }, []);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+          router.replace('/auth');
+      } else if (event === 'TOKEN_REFRESHED') {
+          setUser(session.user);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [router]);
 
   const checkMFAStatus = async () => {
-    if (!supabase) return;
     try {
       const { data: factors, error } = await (supabase.auth as any).mfa.listFactors();
       if (error) throw error;
@@ -150,7 +138,7 @@ export default function SettingsPage() {
 
   // --- LOGIKA REAL MFA / 2FA ---
   const handleStartEnroll2FA = async () => {
-    if (is2FALoading || !supabase) return;
+    if (is2FALoading) return;
     setIs2FALoading(true);
     try {
       // Bersihkan faktor unverified sebelumnya
@@ -184,7 +172,7 @@ export default function SettingsPage() {
   };
 
   const handleCancelEnrollment = async () => {
-    if (!mfaEnrollData || !supabase) return;
+    if (!mfaEnrollData) return;
     setIs2FALoading(true);
     try {
       await (supabase.auth as any).mfa.unenroll({ factorId: mfaEnrollData.id });
@@ -199,7 +187,7 @@ export default function SettingsPage() {
   };
 
   const handleVerifyEnrollment = async () => {
-    if (!mfaEnrollData || !verificationCode || !supabase) return;
+    if (!mfaEnrollData || !verificationCode) return;
     setIs2FALoading(true);
     try {
       const { data: challengeData, error: challengeError } = await (supabase.auth as any).mfa.challenge({
@@ -228,7 +216,7 @@ export default function SettingsPage() {
   };
 
   const handleUnenroll2FA = async () => {
-    if (!mfaFactorId || !window.confirm("Are you sure you want to disable 2FA?") || !supabase) return;
+    if (!mfaFactorId || !window.confirm("Are you sure you want to disable 2FA?")) return;
     setIs2FALoading(true);
     try {
       await (supabase.auth as any).mfa.unenroll({ factorId: mfaFactorId });
@@ -260,7 +248,6 @@ export default function SettingsPage() {
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) return;
     setIsSaving(true);
     try {
       const { error } = await supabase.auth.updateUser({ data: { full_name: fullName } });
@@ -275,7 +262,6 @@ export default function SettingsPage() {
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) return;
     if (newPassword !== confirmPassword) {
       showMsg("Passwords do not match!", 'error');
       return;
@@ -294,7 +280,7 @@ export default function SettingsPage() {
   };
 
   const handleToggleNotif = async () => {
-    if (isNotifLoading || !supabase) return;
+    if (isNotifLoading) return;
     setIsNotifLoading(true);
     const newState = !isNotifActive;
     try {
@@ -312,7 +298,7 @@ export default function SettingsPage() {
   };
 
   const handleConfirmDelete = async () => {
-    if (!supabase || !deleteInput || !user) return;
+    if (!deleteInput || !user) return;
     setIsDeleting(true);
 
     try {
@@ -373,12 +359,11 @@ export default function SettingsPage() {
   };
 
   const handleLogout = async () => {
-    if (!supabase) return;
     await supabase.auth.signOut();
     if (typeof window !== 'undefined') {
         localStorage.clear();
     }
-    safeNavigate('/auth');
+    router.replace('/auth');
   };
 
   if (isLoading) {
@@ -589,7 +574,7 @@ export default function SettingsPage() {
                                      onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
                                      placeholder="000 000"
                                      className="flex-1 bg-transparent px-4 text-3xl font-mono tracking-[0.3em] text-white outline-none placeholder:text-[#2B3139] text-center sm:text-left h-full w-full min-w-0"
-                                    />
+                                   />
                                 </div>
                              </div>
 

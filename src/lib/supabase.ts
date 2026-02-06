@@ -1,7 +1,13 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr'
 
-// Konfigurasi client Supabase menggunakan kredensial yang disediakan
-const supabaseUrl = 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+/*
+ * Fungsi ini membuat client Supabase khusus untuk berjalan di Browser.
+ * Menggunakan @supabase/ssr agar session (cookies) otomatis tersinkronisasi
+ * antara Client (Browser) dan Server (Middleware/Next.js), mencegah logout sendiri.
+ */
+export function createClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+}

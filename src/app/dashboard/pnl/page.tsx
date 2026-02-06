@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Trophy, // Menambahkan Trophy yang sebelumnya hilang
+  Trophy, 
   User, 
   Loader2, 
   BarChart2, 
@@ -14,18 +14,16 @@ import {
   Menu
 } from 'lucide-react';
 
-import { createClient } from '@supabase/supabase-js';
+// PERBAIKAN: Import createClient dari lib/supabase agar menggunakan cookie-based auth
+// Ini mencegah konflik dengan middleware dan redirect loop
+import { createClient } from '@/lib/supabase';
 import * as web3 from '@solana/web3.js';
 import { useLanguage } from '@/lib/LanguageContext';
 import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
+import { useRouter } from 'next/navigation';
 
 // --- IMPORT COMPONENT ---
 import UserSidebar from '@/components/dashboard/UserSidebar';
-
-// --- KONFIGURASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com';
 
@@ -41,11 +39,16 @@ interface ParticipantData {
   rooms?: {
     title: string;
     is_premium: boolean;
+    // HAPUS 'status' DARI SINI KARENA TIDAK ADA DI DB
   };
 }
 
 export default function PnLAnalysisPage() {
   const { t } = useLanguage();
+  const router = useRouter();
+  // Inisialisasi client Supabase yang benar (Cookie-based)
+  const supabase = createClient();
+
   const [user, setUser] = useState<any>(null);
   const [registrations, setRegistrations] = useState<ParticipantData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,25 +58,35 @@ export default function PnLAnalysisPage() {
   const subscriptionsRef = useRef<number[]>([]);
 
   const safeNavigate = (path: string) => {
-    window.location.href = path;
+    router.push(path);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.replace('/auth');
   };
 
   // 1. Sinkronisasi Sesi Auth
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) safeNavigate('/auth');
-      else setUser(session.user);
+      // Menggunakan getUser() lebih aman untuk server-side validation token di cookie
+      const { data: { user }, error } = await supabase.auth.getUser();
+      
+      if (error || !user) {
+        router.replace('/auth');
+      } else {
+        setUser(user);
+      }
     };
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) safeNavigate('/auth');
+      if (!session) router.replace('/auth');
       else setUser(session.user);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [router]); // Tambahkan router ke dependency array
 
   const syncPnLWithBlockchain = async (baseData: ParticipantData[]) => {
     if (baseData.length === 0 || !SOLANA_RPC) return;
@@ -81,6 +94,10 @@ export default function PnLAnalysisPage() {
     try {
       const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
       const publicKeys = baseData.map(p => new web3.PublicKey(p.wallet_address));
+      
+      // Jika tidak ada public keys valid, return
+      if (publicKeys.length === 0) return;
+
       const accountsInfo = await connection.getMultipleAccountsInfo(publicKeys);
 
       const liveData = baseData.map((p, idx) => {
@@ -109,9 +126,10 @@ export default function PnLAnalysisPage() {
     const fetchData = async () => {
       try {
         setErrorMsg("");
+        // PERBAIKAN: Hapus kolom 'status' dari query select rooms karena tidak ada di DB
         const { data, error } = await supabase
           .from('participants')
-          .select(`*, rooms (title, is_premium)`)
+          .select(`*, rooms (title, is_premium)`) 
           .eq('user_id', user.id)
           .order('joined_at', { ascending: true });
 
@@ -128,6 +146,7 @@ export default function PnLAnalysisPage() {
         await syncPnLWithBlockchain(baseEnriched);
 
       } catch (err: any) {
+        console.error("Data fetch error:", err);
         setErrorMsg("Gagal mengambil data trading.");
       } finally {
         setIsLoading(false);
@@ -135,11 +154,6 @@ export default function PnLAnalysisPage() {
     };
     fetchData();
   }, [user]);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    safeNavigate('/auth');
-  };
 
   // --- KALKULASI STATISTIK ---
   const totalInitial = registrations.reduce((acc, curr) => acc + Number(curr.initial_balance), 0);
@@ -244,8 +258,8 @@ export default function PnLAnalysisPage() {
               <div className="h-48 lg:h-72 flex items-end gap-1 md:gap-5 border-b border-[#2B3139] pb-4 relative z-10">
                 {registrations.length === 0 ? (
                   <div className="w-full h-full flex flex-col items-center justify-center text-[#474D57] gap-3">
-                     <Activity size={32} className="opacity-20 animate-pulse" />
-                     <p className="italic text-[10px] font-medium uppercase tracking-widest opacity-30">{t.common.loading}</p>
+                      <Activity size={32} className="opacity-20 animate-pulse" />
+                      <p className="italic text-[10px] font-medium uppercase tracking-widest opacity-30">{t.common.loading}</p>
                   </div>
                 ) : (
                   registrations.map((item, idx) => {
@@ -253,27 +267,27 @@ export default function PnLAnalysisPage() {
                     const height = Math.min(Math.max(Math.abs(pnl) * 60 + 20, 10), 100); 
                     return (
                       <div key={item.id || idx} className="flex-1 group relative h-full flex flex-col justify-end">
-                         <div 
-                          style={{ height: `${height}%` }}
-                          className={`w-full rounded-t-sm lg:rounded-t-xl transition-all duration-700 cursor-pointer ${pnl >= 0 ? 'bg-[#0ECB81] hover:bg-[#0ECB81]/80 shadow-[0_0_20px_rgba(14,203,129,0.1)]' : 'bg-[#F6465D] hover:bg-[#F6465D]/80 shadow-[0_0_20px_rgba(246,70,93,0.1)]'}`}
-                         ></div>
-                         
-                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 hidden group-hover:block z-50 pointer-events-none">
-                            <div className="bg-[#181A20] text-white text-[10px] p-4 lg:p-5 rounded-[1rem] lg:rounded-[1.5rem] shadow-2xl border border-[#2B3139] min-w-[140px] lg:min-w-[160px]">
-                               <p className="font-black border-b border-[#2B3139] pb-2 mb-3 text-[#FCD535] uppercase tracking-wider truncate">{item.rooms?.title || "Trading Room"}</p>
-                               <div className="space-y-1.5">
-                                 <div className="flex justify-between gap-4 text-[#848E9C] font-bold">
-                                   <span>START:</span>
-                                   <span className="font-mono text-[#EAECEF]">{Number(item.initial_balance).toFixed(2)}</span>
-                                 </div>
-                                 <div className={`flex justify-between gap-4 font-black ${pnl >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
-                                   <span>CURRENT:</span>
-                                   <span className="font-mono">{Number(item.current_balance).toFixed(2)}</span>
-                                 </div>
-                               </div>
-                            </div>
-                         </div>
-                      </div>
+                          <div 
+                           style={{ height: `${height}%` }}
+                           className={`w-full rounded-t-sm lg:rounded-t-xl transition-all duration-700 cursor-pointer ${pnl >= 0 ? 'bg-[#0ECB81] hover:bg-[#0ECB81]/80 shadow-[0_0_20px_rgba(14,203,129,0.1)]' : 'bg-[#F6465D] hover:bg-[#F6465D]/80 shadow-[0_0_20px_rgba(246,70,93,0.1)]'}`}
+                          ></div>
+                          
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 hidden group-hover:block z-50 pointer-events-none">
+                             <div className="bg-[#181A20] text-white text-[10px] p-4 lg:p-5 rounded-[1rem] lg:rounded-[1.5rem] shadow-2xl border border-[#2B3139] min-w-[140px] lg:min-w-[160px]">
+                                <p className="font-black border-b border-[#2B3139] pb-2 mb-3 text-[#FCD535] uppercase tracking-wider truncate">{item.rooms?.title || "Trading Room"}</p>
+                                <div className="space-y-1.5">
+                                  <div className="flex justify-between gap-4 text-[#848E9C] font-bold">
+                                    <span>START:</span>
+                                    <span className="font-mono text-[#EAECEF]">{Number(item.initial_balance).toFixed(2)}</span>
+                                  </div>
+                                  <div className={`flex justify-between gap-4 font-black ${pnl >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                    <span>CURRENT:</span>
+                                    <span className="font-mono">{Number(item.current_balance).toFixed(2)}</span>
+                                  </div>
+                                </div>
+                             </div>
+                          </div>
+                       </div>
                     )
                   })
                 )}
@@ -309,7 +323,6 @@ export default function PnLAnalysisPage() {
                             <td className="p-4 lg:p-8">
                                <div className="flex items-center gap-3 lg:gap-4">
                                   <div className="hidden sm:flex w-8 lg:w-10 h-8 lg:h-10 rounded-lg lg:rounded-xl bg-[#0B0E11] border border-[#2B3139] items-center justify-center text-[#848E9C] group-hover:border-[#FCD535]/30 transition-colors">
-                                     {/* Trophy sekarang sudah diimport dan akan tampil */}
                                      <Trophy size={16} />
                                   </div>
                                   <div className="flex flex-col min-w-0">

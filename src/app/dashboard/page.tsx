@@ -24,21 +24,16 @@ import {
   Calendar
 } from 'lucide-react';
 
-import { createClient } from '@supabase/supabase-js';
+// PERBAIKAN: Import createClient dari lib/supabase agar menggunakan cookie-based auth
+// Ini mencegah konflik dengan middleware dan redirect loop
+import { createClient } from '@/lib/supabase';
 import * as web3 from '@solana/web3.js';
 import { useLanguage } from '@/lib/LanguageContext';
 import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
 
-// --- IMPORT KOMPONEN BARU ---
+// --- IMPORT KOMPONEN ---
 import UserSidebar from '@/components/dashboard/UserSidebar';
 import UserStatCard from '@/components/dashboard/UserStatCard';
-
-// --- KONFIGURASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = (supabaseUrl && supabaseAnonKey) 
-  ? createClient(supabaseUrl, supabaseAnonKey) 
-  : null;
 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com';
 
@@ -57,7 +52,7 @@ interface ParticipantData {
     is_premium: boolean;
     distribution_status?: string;
     winners_info?: any[];
-    status?: string;
+    // status?: string; // Removed incorrect field
   };
 }
 
@@ -66,10 +61,15 @@ interface UserStats {
   user_xp: number;
   referral_code: string;
   total_referrals: number;
+  total_sol_rewards_claimed?: number; // Tambahkan jika perlu
+  rank?: number; // Tambahkan jika perlu
 }
 
 export default function DashboardPage() {
   const { t } = useLanguage();
+  // Inisialisasi client Supabase yang benar (Cookie-based)
+  const supabase = createClient();
+
   const [user, setUser] = useState<any>(null);
   const [registrations, setRegistrations] = useState<ParticipantData[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
@@ -88,20 +88,23 @@ export default function DashboardPage() {
   // 1. Sinkronisasi Sesi Auth
   useEffect(() => {
     const initAuth = async () => {
-      if (!supabase) return;
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) safeNavigate('/auth');
-      else setUser(session.user);
+      // Menggunakan getUser() lebih aman untuk server-side validation token di cookie
+      const { data: { user }, error } = await supabase.auth.getUser();
+      
+      if (error || !user) {
+        safeNavigate('/auth');
+      } else {
+        setUser(user);
+      }
     };
     initAuth();
 
-    if (supabase) {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-          if (!session) safeNavigate('/auth');
-          else setUser(session.user);
-        });
-        return () => subscription.unsubscribe();
-    }
+    // Listener auth state change
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) safeNavigate('/auth');
+      else setUser(session.user);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   /**
@@ -144,18 +147,23 @@ export default function DashboardPage() {
 
   // 2. Fetch Data Trading & Stats
   useEffect(() => {
-    if (!user || !supabase) return;
+    if (!user) return;
+    
     const fetchData = async () => {
       try {
         setIsSyncing(true);
         // A. Fetch Participants
+        // FIX: Removed 'status' from rooms select because it doesn't exist in the rooms table schema
         const { data: participantsData, error: partError } = await supabase
           .from('participants')
-          .select(`*, rooms (title, is_premium, distribution_status, winners_info, status)`)
+          .select(`*, rooms (title, is_premium, distribution_status, winners_info)`)
           .eq('user_id', user.id)
           .order('joined_at', { ascending: false });
 
-        if (partError) throw partError;
+        if (partError) {
+            console.error("Supabase Participants Error:", partError);
+            throw partError;
+        }
         
         const baseEnriched = (participantsData || []).map((item: any) => {
           const adjustedCurrent = item.current_balance - (item.total_deposit || 0);
@@ -169,17 +177,33 @@ export default function DashboardPage() {
         setupRealTimeSync(baseEnriched);
 
         // B. Fetch User Stats (XP, Level, Referral)
+        // Gunakan maybeSingle() untuk menghindari error jika data belum ada
         const { data: statsData, error: statsError } = await supabase
           .from('user_stats')
           .select('*')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
         
-        if (!statsError && statsData) {
+        if (statsError) {
+            console.error("Supabase User Stats Error:", statsError);
+        }
+
+        // Jika statsData ada, set stats. Jika null, biarkan null (akan dirender loading atau empty state)
+        if (statsData) {
             setStats(statsData);
+        } else {
+            // Optional: Set default stats for new users if not found in DB
+             setStats({
+                user_level: 1,
+                user_xp: 0,
+                referral_code: 'NEW',
+                total_referrals: 0,
+                total_sol_rewards_claimed: 0
+             });
         }
 
       } catch (err: any) {
+        console.error("Fetch Error Detail:", JSON.stringify(err, null, 2));
         setErrorMsg("Gagal memuat data.");
       } finally {
         setIsLoading(false);
@@ -196,10 +220,10 @@ export default function DashboardPage() {
         } catch(e) {}
       });
     };
-  }, [user]);
+  }, [user]); // Dependency user memastikan fetch jalan setelah user ada
 
   const handleLogout = async () => {
-    if (supabase) await supabase.auth.signOut();
+    await supabase.auth.signOut();
     safeNavigate('/auth');
   };
 
@@ -249,7 +273,12 @@ export default function DashboardPage() {
   // Persentase progress bar
   const progressPercent = Math.min(100, Math.max(0, ((currentXp - xpForCurrentLevel) / (xpForNextLevel - xpForCurrentLevel)) * 100));
 
-  if (isLoading) return <div className="min-h-screen flex flex-col items-center justify-center bg-[#0B0E11]"><Loader2 className="w-12 h-12 text-[#FCD535] animate-spin mb-4" /></div>;
+  if (isLoading) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#0B0E11] text-[#EAECEF]">
+        <Loader2 className="w-12 h-12 text-[#FCD535] animate-spin mb-4" />
+        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#848E9C]">Loading Dashboard...</p>
+    </div>
+  );
 
   return (
     <div className="flex min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans selection:bg-[#FCD535]/30">
@@ -304,26 +333,26 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="flex-1 w-full space-y-4">
-                     <div className="flex justify-between items-end">
-                        <div>
-                           <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">{rank.label}</h2>
-                           <p className="text-[#848E9C] text-xs font-medium">Next Level: {xpForNextLevel} XP</p>
-                        </div>
-                        <div className="text-right">
-                           <span className="text-[#FCD535] font-black text-xl">{currentXp} XP</span>
-                           <span className="text-[#474D57] text-xs font-bold block">TOTAL EXPERIENCE</span>
-                        </div>
-                     </div>
-                     
-                     {/* Progress Bar */}
-                     <div className="h-4 w-full bg-[#0B0E11] rounded-full overflow-hidden border border-[#2B3139]">
-                        <div 
-                          className="h-full bg-gradient-to-r from-[#FCD535] to-orange-500 transition-all duration-1000 ease-out relative"
-                          style={{ width: `${progressPercent}%` }}
-                        >
-                           <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
-                        </div>
-                     </div>
+                      <div className="flex justify-between items-end">
+                         <div>
+                            <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">{rank.label}</h2>
+                            <p className="text-[#848E9C] text-xs font-medium">Next Level: {xpForNextLevel} XP</p>
+                         </div>
+                         <div className="text-right">
+                            <span className="text-[#FCD535] font-black text-xl">{currentXp} XP</span>
+                            <span className="text-[#474D57] text-xs font-bold block">TOTAL EXPERIENCE</span>
+                         </div>
+                      </div>
+                      
+                      {/* Progress Bar */}
+                      <div className="h-4 w-full bg-[#0B0E11] rounded-full overflow-hidden border border-[#2B3139]">
+                         <div 
+                           className="h-full bg-gradient-to-r from-[#FCD535] to-orange-500 transition-all duration-1000 ease-out relative"
+                           style={{ width: `${progressPercent}%` }}
+                         >
+                            <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                         </div>
+                      </div>
                   </div>
 
                   {/* Referral Card */}
@@ -339,7 +368,7 @@ export default function DashboardPage() {
                          </div>
                       </div>
                       <div className="text-[9px] text-[#848E9C] text-center">
-                         Total Referrals: <span className="text-white font-bold">{stats.total_referrals}</span>
+                          Total Referrals: <span className="text-white font-bold">{stats.total_referrals}</span>
                       </div>
                   </div>
                </div>
@@ -368,41 +397,41 @@ export default function DashboardPage() {
 
                  return (
                    <div key={item.id} className={`bg-[#1E2329] border ${winData ? 'border-[#FCD535]/50 shadow-[0_0_20px_rgba(252,213,53,0.1)]' : 'border-[#2B3139]'} hover:border-[#FCD535]/30 rounded-[2.5rem] p-6 lg:p-10 transition-all duration-300 group flex flex-col md:flex-row items-center gap-8 shadow-2xl relative overflow-hidden`}>
-                     <div className={`w-20 h-20 rounded-3xl flex items-center justify-center border shadow-inner shrink-0 ${winData ? 'bg-[#FCD535] text-black border-[#FCD535]' : 'bg-[#0B0E11] border-[#474D57] text-[#FCD535]'}`}>
-                         {winData ? <Crown size={32} fill="currentColor"/> : <Trophy size={32} />}
-                     </div>
-                     
-                     <div className="flex-1 text-center md:text-left">
-                       <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-2 leading-none flex items-center justify-center md:justify-start gap-3">
-                          {item.rooms?.title}
-                          {winData && (
-                             <span className="bg-[#FCD535] text-black text-[9px] px-2 py-1 rounded-md uppercase tracking-widest font-black flex items-center gap-1">
-                                Rank #{winData.rank}
-                             </span>
-                          )}
-                       </h3>
-                       
-                       {winData && (
-                          <p className="text-[#FCD535] text-xs font-bold mb-4 flex items-center justify-center md:justify-start gap-2">
-                             <CheckCircle size={14} /> Reward Paid: {winData.amount} SOL
-                          </p>
-                       )}
+                      <div className={`w-20 h-20 rounded-3xl flex items-center justify-center border shadow-inner shrink-0 ${winData ? 'bg-[#FCD535] text-black border-[#FCD535]' : 'bg-[#0B0E11] border-[#474D57] text-[#FCD535]'}`}>
+                          {winData ? <Crown size={32} fill="currentColor"/> : <Trophy size={32} />}
+                      </div>
+                      
+                      <div className="flex-1 text-center md:text-left">
+                        <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-2 leading-none flex items-center justify-center md:justify-start gap-3">
+                           {item.rooms?.title}
+                           {winData && (
+                              <span className="bg-[#FCD535] text-black text-[9px] px-2 py-1 rounded-md uppercase tracking-widest font-black flex items-center gap-1">
+                                 Rank #{winData.rank}
+                              </span>
+                           )}
+                        </h3>
+                        
+                        {winData && (
+                           <p className="text-[#FCD535] text-xs font-bold mb-4 flex items-center justify-center md:justify-start gap-2">
+                              <CheckCircle size={14} /> Reward Paid: {winData.amount} SOL
+                           </p>
+                        )}
 
-                       <div className="flex flex-wrap justify-center md:justify-start gap-3">
-                         <span className="px-3 py-1 rounded-lg bg-[#0ECB81]/10 text-[#0ECB81] text-[9px] font-black uppercase border border-[#0ECB81]/20 tracking-widest">{t.dashboard.records.verified_ledger}</span>
-                         {isAdjusted && <span className="px-3 py-1 rounded-lg bg-yellow-500/10 text-yellow-500 text-[9px] font-black uppercase border border-yellow-500/20 flex items-center gap-1"><ShieldAlert size={10}/> {t.dashboard.records.anti_cheat_filtered}</span>}
-                       </div>
-                     </div>
-                     
-                     <div className="flex items-center gap-12 border-t md:border-t-0 md:border-l border-[#2B3139] pt-6 md:pt-0 md:pl-12 w-full md:w-auto justify-center">
-                         <div className="text-center">
-                             <p className="text-[9px] font-black text-[#474D57] uppercase tracking-widest mb-1 italic">{t.dashboard.records.clean_roi}</p>
-                             <p className={`text-4xl font-black italic tracking-tighter ${profitVal >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
-                                {profitVal >= 0 ? '+' : ''}{profitVal.toFixed(2)}%
-                             </p>
-                         </div>
-                         <button onClick={() => safeNavigate(`/arena/${item.room_id}`)} className="p-4 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90"><ArrowUpRight size={20} /></button>
-                     </div>
+                        <div className="flex flex-wrap justify-center md:justify-start gap-3">
+                          <span className="px-3 py-1 rounded-lg bg-[#0ECB81]/10 text-[#0ECB81] text-[9px] font-black uppercase border border-[#0ECB81]/20 tracking-widest">{t.dashboard.records.verified_ledger}</span>
+                          {isAdjusted && <span className="px-3 py-1 rounded-lg bg-yellow-500/10 text-yellow-500 text-[9px] font-black uppercase border border-yellow-500/20 flex items-center gap-1"><ShieldAlert size={10}/> {t.dashboard.records.anti_cheat_filtered}</span>}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-12 border-t md:border-t-0 md:border-l border-[#2B3139] pt-6 md:pt-0 md:pl-12 w-full md:w-auto justify-center">
+                          <div className="text-center">
+                              <p className="text-[9px] font-black text-[#474D57] uppercase tracking-widest mb-1 italic">{t.dashboard.records.clean_roi}</p>
+                              <p className={`text-4xl font-black italic tracking-tighter ${profitVal >= 0 ? 'text-[#0ECB81]' : 'text-[#F6465D]'}`}>
+                                 {profitVal >= 0 ? '+' : ''}{profitVal.toFixed(2)}%
+                              </p>
+                          </div>
+                          <button onClick={() => safeNavigate(`/arena/${item.room_id}`)} className="p-4 bg-[#0B0E11] border border-[#2B3139] rounded-2xl text-[#848E9C] hover:text-[#FCD535] transition-all active:scale-90"><ArrowUpRight size={20} /></button>
+                      </div>
                    </div>
                  );
                })

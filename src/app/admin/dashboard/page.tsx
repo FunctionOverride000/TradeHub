@@ -30,25 +30,32 @@ import {
   Ticket,
   ShieldCheck,
   RefreshCw,
-  Wrench // Ikon untuk tombol Fix
+  Wrench, // Ikon untuk tombol Fix
+  AlertCircle // <-- DITAMBAHKAN DI SINI
 } from 'lucide-react';
 
-import { createClient } from '@supabase/supabase-js';
+// PERBAIKAN PENTING:
+// Kita import 'createClient' dari file helper kita sendiri di '@/lib/supabase'.
+// Helper ini dikonfigurasi menggunakan '@supabase/ssr' (createBrowserClient).
+// Ini memastikan sesi login disimpan di COOKIES, bukan localStorage.
+// Middleware di server hanya bisa membaca cookies. Jika pakai localStorage, server tidak tahu kita sudah login -> redirect ke login -> client tahu login -> redirect ke dashboard -> LOOPING.
+import { createClient } from '@/lib/supabase';
+
 import * as web3 from '@solana/web3.js';
-import { useLanguage } from '../../../lib/LanguageContext';
-import { LanguageSwitcher } from '../../../lib/LanguageSwitcher'; 
+import { useLanguage } from '@/lib/LanguageContext';
+import { LanguageSwitcher } from '@/lib/LanguageSwitcher'; 
 
 // --- IMPORT KOMPONEN YANG SUDAH DIPISAH ---
-import AdminSidebar from '../../../components/admin/AdminSidebar';
-import AdminStatCard from '../../../components/admin/AdminStatCard';
+import AdminSidebar from '@/components/admin/AdminSidebar';
+import AdminStatCard from '@/components/admin/AdminStatCard';
 
 // --- KONFIGURASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+// Tidak perlu konfigurasi URL/Key di sini lagi karena sudah di-handle oleh @/lib/supabase
+// const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+// const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-const supabase = (supabaseUrl && supabaseAnonKey) 
-  ? createClient(supabaseUrl, supabaseAnonKey) 
-  : null;
+// Kita inisialisasi client menggunakan helper yang benar
+const supabase = createClient();
 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com';
 const PLATFORM_TREASURY = "DLmtgDL1viNJUBzZvd91cLVkdKz4YkivCSpNKNKe6oLg"; 
@@ -493,7 +500,9 @@ export default function CreatorDashboard() {
           edit_count: editCount + 1,
           
           distribution_status: statusToUpdate,
-          description: statusToUpdate === 'pending' ? null : editingRoom.description,
+          // FIX: Baris ini saya hapus karena properti 'description' sudah didefinisikan di atas (baris ~399)
+          // description: statusToUpdate === 'pending' ? null : editingRoom.description, 
+          
           distribution_tx_hash: statusToUpdate === 'pending' ? null : editingRoom.distribution_tx_hash
         }).eq('id', editingRoom.id);
 

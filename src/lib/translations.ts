@@ -123,6 +123,7 @@ export const translations = {
     },
     dashboard: {
       sidebar: {
+        overview: "Overview",
         track_record: "Track Record",
         pnl_analysis: "PnL Analysis",
         certificates: "Certificates",
@@ -259,3 +260,7 @@ export const translations = {
     }
   }
 };
+
+// Update: Hanya mendukung bahasa Inggris ('en')
+export type Language = 'en';
+export type TranslationType = typeof translations.en;

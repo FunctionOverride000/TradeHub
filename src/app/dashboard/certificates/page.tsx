@@ -24,18 +24,18 @@ import {
  * MENGGUNAKAN ESM CDN:
  * Menjamin library dimuat dengan benar di lingkungan preview tanpa folder node_modules lokal.
  */
-import { createClient } from '@supabase/supabase-js';
+// FIX: Import createClient from the local helper for consistent auth
+import { createClient } from '@/lib/supabase';
 import * as web3 from '@solana/web3.js';
 import { useLanguage } from '@/lib/LanguageContext';
 import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
+import { useRouter } from 'next/navigation'; // FIX: Use standard Next.js router
 
 // --- IMPORT KOMPONEN BARU ---
 import UserSidebar from '@/components/dashboard/UserSidebar';
 
-// --- KONFIGURASI SUPABASE ---
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vmvezylbaxlodkepstbj.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtdmV6eWxiYXhsb2RrZXBzdGJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwMTYxNzEsImV4cCI6MjA4MTU5MjE3MX0.a2_XxJKLRXrt_tn_UiMYTmpP1iGjul6OhaHI3IGzJCw';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Initialize Supabase using the helper (no args needed as they are in the helper)
+const supabase = createClient();
 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com';
 
@@ -57,6 +57,7 @@ interface ParticipantData {
 
 export default function CertificatesPage() {
   const { t } = useLanguage();
+  const router = useRouter(); // FIX: Initialize router
   const [user, setUser] = useState<any>(null);
   const [registrations, setRegistrations] = useState<ParticipantData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -65,23 +66,26 @@ export default function CertificatesPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const safeNavigate = (path: string) => {
-    window.location.href = path;
+    router.push(path); // FIX: Use router.push for smooth navigation
   };
 
   // 1. Sinkronisasi Sesi Auth
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) safeNavigate('/auth');
-      else setUser(session.user);
+      if (!session) {
+        router.replace('/auth');
+        return;
+      }
+      setUser(session.user);
     };
     init();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) safeNavigate('/auth');
+      if (!session) router.replace('/auth');
       else setUser(session.user);
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [router]);
 
   const verifyCertificatesOnChain = async (baseData: ParticipantData[]) => {
     if (baseData.length === 0 || !SOLANA_RPC) return;
@@ -161,7 +165,7 @@ export default function CertificatesPage() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    safeNavigate('/auth');
+    router.replace('/auth');
   };
 
   const achievements = registrations.filter(r => r.status === 'verified');
