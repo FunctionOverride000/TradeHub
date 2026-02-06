@@ -18,17 +18,16 @@ import {
   Loader2
 } from 'lucide-react';
 
-import { createClient } from '@supabase/supabase-js';
+// PERUBAHAN PENTING: Gunakan createBrowserClient agar bisa baca Cookies
+import { createBrowserClient } from '@supabase/ssr'; 
 import * as web3 from '@solana/web3.js';
 import { useLanguage } from '@/lib/LanguageContext';
 import { getLevelInfo } from '@/lib/levelUtils';
-// Pastikan path ini sesuai dengan struktur folder Anda
 import StatusOverlay from '@/components/ui/StatusOverlay'; 
 
-// --- SUPABASE CONFIGURATION ---
+// --- SUPABASE CONFIGURATION (BROWSER CLIENT) ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 // --- FEES CONFIGURATION (REAL) ---
 const BASE_CREATION_FEE_SOL = 0.1; 
@@ -44,6 +43,7 @@ export default function CreateArenaPage() {
   const [status, setStatus] = useState<'idle' | 'paying' | 'confirming' | 'saving' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
+  const [isLoadingSession, setIsLoadingSession] = useState(true); // Tambahkan state loading session
   
   // State Level & Privilege
   const [levelData, setLevelData] = useState<any>(null);
@@ -64,6 +64,9 @@ export default function CreateArenaPage() {
     entry_fee: '0' 
   });
 
+  // Inisialisasi Supabase Client yang support Cookies
+  const supabase = useMemo(() => createBrowserClient(supabaseUrl, supabaseAnonKey), []);
+
   const safeNavigate = (path: string) => {
     window.location.href = path;
   };
@@ -71,20 +74,24 @@ export default function CreateArenaPage() {
   // 1. Check Auth Session & Fetch Level
   useEffect(() => {
     const init = async () => {
-      if (!supabase) return;
+      setIsLoadingSession(true);
       
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      // Ambil session dari cookies (lebih akurat daripada getSession biasa)
+      const { data: { user: currentUser }, error } = await supabase.auth.getUser();
+
+      if (error || !currentUser) {
+        console.log("User not found in Create Arena, redirecting...", error);
         safeNavigate('/auth');
         return;
       }
-      setUser(session.user);
+
+      setUser(currentUser);
 
       // Fetch Creator Level for Discounts
       const { data: stats } = await supabase
         .from('user_stats')
         .select('*')
-        .eq('user_id', session.user.id)
+        .eq('user_id', currentUser.id)
         .single();
 
       if (stats) {
@@ -92,9 +99,11 @@ export default function CreateArenaPage() {
       } else {
         setLevelData(getLevelInfo(0));
       }
+      setIsLoadingSession(false);
     };
+
     init();
-  }, []);
+  }, [supabase]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -334,6 +343,15 @@ export default function CreateArenaPage() {
       setErrorMsg('Failed to save: ' + err.message);
     }
   };
+
+  // Tampilkan loading screen sederhana saat session dicek
+  if (isLoadingSession) {
+    return (
+      <div className="min-h-screen bg-[#0B0E11] flex items-center justify-center">
+         <Loader2 className="animate-spin text-[#FCD535]" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans flex flex-col items-center relative overflow-x-hidden">
