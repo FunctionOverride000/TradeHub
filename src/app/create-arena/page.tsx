@@ -64,6 +64,7 @@ export default function CreateArenaPage() {
     entry_fee: '0' 
   });
 
+  // INITIALIZE SUPABASE CLIENT (SSR COMPATIBLE)
   const supabase = useMemo(() => createBrowserClient(supabaseUrl, supabaseAnonKey), []);
 
   const safeNavigate = (path: string) => {
@@ -82,15 +83,14 @@ export default function CreateArenaPage() {
           return;
       }
 
-      // Cek Session
+      // Cek Session menggunakan getUser (lebih stabil untuk SSR/Vercel)
       const { data: { user: currentUser }, error } = await supabase.auth.getUser();
 
       if (error || !currentUser) {
         console.error("Auth Error:", error);
         // 🛑 REM DARURAT: JANGAN REDIRECT OTOMATIS
         // Kita hanya set user null dan tampilkan pesan error di layar
-        // safeNavigate('/auth'); <-- KITA MATIKAN INI BIAR GAK MENTAL
-        
+        // Ini kunci agar tidak mental ke dashboard jika session belum sinkron
         setDebugStatus(error ? error.message : 'User session not found (Cookie missing?)');
         setUser(null);
         setIsLoadingSession(false);
@@ -121,7 +121,7 @@ export default function CreateArenaPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // ... (Logic Fee & Payment tetap sama)
+  // Logic Perhitungan Fee & Diskon
   const getCreationFee = () => {
     const level = levelData?.level || 1;
     let discount = 0;
@@ -262,7 +262,7 @@ export default function CreateArenaPage() {
         ? whitelistInput.split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 0)
         : null;
 
-      const { error, data } = await supabase.from('rooms').insert([
+      const { error } = await supabase.from('rooms').insert([
         { 
           title: formData.title,
           description: formData.description,
@@ -295,7 +295,7 @@ export default function CreateArenaPage() {
     }
   };
 
-  // --- TAMPILAN JIKA AUTH GAGAL (BUKAN REDIRECT) ---
+  // --- TAMPILAN JIKA AUTH GAGAL (MENCEGAH REDIRECT LOOP) ---
   if (!isLoadingSession && !user) {
       return (
         <div className="min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans flex flex-col items-center justify-center p-6 text-center">
@@ -308,11 +308,11 @@ export default function CreateArenaPage() {
                     {debugStatus || "We could not find your login session."}
                 </p>
                 
-                <div className="bg-[#0B0E11] p-4 rounded-xl mb-6 text-left">
+                <div className="bg-[#0B0E11] p-4 rounded-xl mb-6 text-left border border-[#2B3139]">
                     <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">Diagnostic Info:</p>
                     <code className="text-xs font-mono text-yellow-500 break-all">
-                        URL: {supabaseUrl ? '✅ Loaded' : '❌ MISSING'} <br/>
-                        KEY: {supabaseAnonKey ? '✅ Loaded' : '❌ MISSING'}
+                        SSR_MODE: createBrowserClient <br/>
+                        ENV_LOADED: {supabaseUrl ? 'YES' : 'NO'}
                     </code>
                 </div>
 
@@ -371,7 +371,7 @@ export default function CreateArenaPage() {
               <div className="w-12 h-12 md:w-16 md:h-16 bg-[#FCD535] rounded-2xl flex items-center justify-center text-black shadow-lg shadow-[#FCD535]/10 shrink-0"><Trophy size={24} className="md:w-8 md:h-8" /></div>
               <div>
                 <h1 className="text-xl md:text-3xl font-black uppercase tracking-tighter italic leading-none">
-                  [LIVE] Launch Arena
+                  [TEST MODE] Launch Arena
                 </h1>
                 <p className="text-[#848E9C] text-[9px] md:text-[10px] font-black uppercase tracking-widest mt-2 italic">
                   Create, Fund & Compete
@@ -381,7 +381,7 @@ export default function CreateArenaPage() {
           </div>
 
           <div className="p-6 md:p-10 space-y-6 md:space-y-8">
-            {/* --- FORM CONTENT DI SINI (SAMA SEPERTI SEBELUMNYA) --- */}
+            
             {/* PRIVILEGE CARD */}
             <div className="bg-gradient-to-r from-[#2B3139] to-[#1E2329] p-6 rounded-[2rem] border border-[#FCD535]/20 shadow-xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/5 rounded-full blur-[80px] pointer-events-none"></div>
@@ -439,7 +439,6 @@ export default function CreateArenaPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-8">
-                {/* --- INPUT REWARD (ANGKA) --- */}
                 <div className="space-y-2 md:space-y-3">
                   <label className="text-[10px] font-black text-[#FCD535] uppercase tracking-widest ml-1 flex items-center gap-1"><Gift size={12}/> Reward Pool (Deposit Required)</label>
                   <div className="relative">
@@ -460,7 +459,6 @@ export default function CreateArenaPage() {
                 </div>
               </div>
 
-              {/* --- INPUT ENTRY FEE --- */}
               <div className="p-5 bg-[#0B0E11] border border-[#2B3139] rounded-2xl space-y-4">
                  <div className="flex items-center gap-3 mb-2">
                     <div className="p-2 bg-[#FCD535]/10 rounded-lg text-[#FCD535]"><Ticket size={18} /></div>
@@ -475,7 +473,6 @@ export default function CreateArenaPage() {
                  </div>
               </div>
 
-              {/* --- FITUR PREMIUM ACCESS CONTROL --- */}
               <div className="space-y-4 pt-4 border-t border-[#2B3139]">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-black text-[#FCD535] uppercase tracking-widest ml-1 flex items-center gap-2">

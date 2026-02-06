@@ -4,10 +4,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
 
-  // 1. BYPASS MUTLAK (Early Exit)
+  // ==========================================================================
+  // 1. BYPASS MUTLAK (Early Exit Strategy)
+  // ==========================================================================
   // Cek ini DULUAN sebelum inisialisasi Supabase atau logic lain.
-  // Ini menjamin tidak ada error server yang menghalangi akses ke halaman ini.
-  // Jika path adalah /create-arena, langsung izinkan lewat tanpa tanya-tanya.
+  // Ini menjamin tidak ada error server/auth yang menghalangi akses ke halaman ini.
+  // Jika user mau ke /create-arena, biarkan lewat. Autentikasi akan dicek di client-side (page.tsx).
   if (path.startsWith('/create-arena')) {
     return NextResponse.next()
   }
@@ -47,6 +49,7 @@ export async function middleware(request: NextRequest) {
   )
 
   // 4. PENTING: Refresh session server-side.
+  // Ini mengecek ke Auth Supabase apakah token di cookie masih valid.
   const { data: { user } } = await supabase.auth.getUser()
 
   // 5. Proteksi Halaman Private
@@ -56,7 +59,7 @@ export async function middleware(request: NextRequest) {
     path.startsWith('/profile') ||
     path.startsWith('/buat-lomba') ||
     path.startsWith('/admin')
-    // Catatan: /create-arena TIDAK dimasukkan di sini karena sudah di-bypass di atas
+    // Catatan: /create-arena TIDAK dimasukkan di sini karena sudah di-bypass total di langkah no 1
   )) {
     // Redirect paksa ke halaman login (/auth)
     const url = request.nextUrl.clone()
@@ -86,6 +89,11 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    /*
+     * Matcher ini menentukan rute mana saja yang akan dicek oleh Middleware.
+     * Kita mengecualikan file statis (_next/static, _next/image, favicon, public files)
+     * agar performa aplikasi tetap cepat dan tidak membebani server.
+     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
