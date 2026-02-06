@@ -15,10 +15,10 @@ import {
   Gift,
   Rocket,
   Zap,
-  Loader2
+  Loader2,
+  Bug
 } from 'lucide-react';
 
-// PERUBAHAN PENTING: Gunakan createBrowserClient agar bisa baca Cookies
 import { createBrowserClient } from '@supabase/ssr'; 
 import * as web3 from '@solana/web3.js';
 import { useLanguage } from '@/lib/LanguageContext';
@@ -43,7 +43,10 @@ export default function CreateArenaPage() {
   const [status, setStatus] = useState<'idle' | 'paying' | 'confirming' | 'saving' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
-  const [isLoadingSession, setIsLoadingSession] = useState(true); // Tambahkan state loading session
+  const [isLoadingSession, setIsLoadingSession] = useState(true);
+  
+  // --- DEBUG STATE ---
+  const [debugInfo, setDebugInfo] = useState<any>(null);
   
   // State Level & Privilege
   const [levelData, setLevelData] = useState<any>(null);
@@ -59,12 +62,11 @@ export default function CreateArenaPage() {
     description: '',
     start_date: '',
     end_date: '',
-    reward: '', // Input string
+    reward: '',
     min_balance: '0',
     entry_fee: '0' 
   });
 
-  // Inisialisasi Supabase Client yang support Cookies
   const supabase = useMemo(() => createBrowserClient(supabaseUrl, supabaseAnonKey), []);
 
   const safeNavigate = (path: string) => {
@@ -76,30 +78,58 @@ export default function CreateArenaPage() {
     const init = async () => {
       setIsLoadingSession(true);
       
-      // Ambil session dari cookies (lebih akurat daripada getSession biasa)
-      const { data: { user: currentUser }, error } = await supabase.auth.getUser();
+      // DIAGNOSTIC START
+      const envCheck = {
+        hasUrl: !!supabaseUrl,
+        urlValue: supabaseUrl ? `${supabaseUrl.substring(0, 15)}...` : 'MISSING',
+        hasKey: !!supabaseAnonKey,
+        cookieCheck: typeof document !== 'undefined' ? document.cookie.substring(0, 20) + '...' : 'No Doc'
+      };
 
-      if (error || !currentUser) {
-        console.log("User not found in Create Arena, redirecting...", error);
-        safeNavigate('/auth');
-        return;
+      try {
+        const { data: { user: currentUser }, error } = await supabase.auth.getUser();
+
+        if (error || !currentUser) {
+          console.error("DEBUG: User fetch failed", error);
+          // ⚠️ DISABLE REDIRECT FOR DEBUGGING
+          // safeNavigate('/auth'); 
+          setDebugInfo({
+             status: 'AUTH_FAILED',
+             error: error ? error.message : 'No User Session Found',
+             details: error,
+             env: envCheck
+          });
+          setIsLoadingSession(false);
+          return;
+        }
+
+        setUser(currentUser);
+
+        const { data: stats, error: statsError } = await supabase
+          .from('user_stats')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .single();
+        
+        if (statsError) {
+             console.warn("DEBUG: Stats fetch warning", statsError);
+        }
+
+        if (stats) {
+          setLevelData(getLevelInfo(stats.user_xp || 0));
+        } else {
+          setLevelData(getLevelInfo(0));
+        }
+        setIsLoadingSession(false);
+
+      } catch (err: any) {
+        setDebugInfo({
+            status: 'CRASH',
+            error: err.message,
+            env: envCheck
+        });
+        setIsLoadingSession(false);
       }
-
-      setUser(currentUser);
-
-      // Fetch Creator Level for Discounts
-      const { data: stats } = await supabase
-        .from('user_stats')
-        .select('*')
-        .eq('user_id', currentUser.id)
-        .single();
-
-      if (stats) {
-        setLevelData(getLevelInfo(stats.user_xp || 0));
-      } else {
-        setLevelData(getLevelInfo(0));
-      }
-      setIsLoadingSession(false);
     };
 
     init();
@@ -109,36 +139,28 @@ export default function CreateArenaPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // 2. Calculate Creation Fee Discount based on Level
+  // ... (Sisa fungsi getCreationFee, totalCost, executeRealPayment sama seperti sebelumnya) ...
   const getCreationFee = () => {
     const level = levelData?.level || 1;
     let discount = 0;
-
-    if (level >= 50) discount = 1.0;      // Global Elite: Free
-    else if (level >= 30) discount = 0.5; // Whale: 50% Off
-    else if (level >= 10) discount = 0.2; // Dolphin: 20% Off
-
+    if (level >= 50) discount = 1.0;     
+    else if (level >= 30) discount = 0.5;
+    else if (level >= 10) discount = 0.2;
     const discountedFee = BASE_CREATION_FEE_SOL * (1 - discount);
     return { discountedFee, discount };
   };
 
   const { discountedFee, discount } = getCreationFee();
 
-  // 3. Calculate Total Cost (Discounted Fee + Premium Fee + Reward Deposit)
   const totalCost = useMemo(() => {
     let cost = discountedFee;
-    
-    // Additional premium fees (not discounted)
     if (accessType === 'private') cost += PRIVATE_FEE_SOL;
     if (accessType === 'whitelist') cost += WHITELIST_FEE_SOL;
-    
     const rewardDeposit = parseFloat(formData.reward) || 0;
     cost += rewardDeposit;
-    
     return cost;
   }, [accessType, formData.reward, discountedFee]);
 
-  // Helper: Poll transaction status
   const pollSignatureStatus = async (connection: web3.Connection, signature: string): Promise<boolean> => {
     let count = 0;
     while (count < 30) {
@@ -152,7 +174,6 @@ export default function CreateArenaPage() {
     throw new Error("Confirmation timeout.");
   };
 
-  // Helper: Detect Phantom Wallet
   const getProvider = () => {
     if (typeof window === 'undefined') return null;
     const phantom = (window as any).phantom?.solana;
@@ -162,39 +183,28 @@ export default function CreateArenaPage() {
     return null;
   };
 
-  // Solana Payment Logic
   const executeRealPayment = async (amount: number): Promise<{ signature: string, wallet: string } | null> => {
-    // If total cost is 0 (high level & 0 reward & basic features), skip payment
     if (amount <= 0) {
        return { signature: 'free_tier_bypass', wallet: 'system' };
     }
-
     const provider = getProvider();
-    
     if (!provider) {
       setStatus('error');
       setErrorMsg("Phantom Wallet not detected! Please install Phantom.");
       window.open('https://phantom.app/', '_blank');
       return null;
     }
-
     try {
       setStatus('paying');
       setErrorMsg(null);
-      
-      // CRITICAL STEP: Connect Wallet
       const resp = await provider.connect();
-      
       const senderPublicKey = resp.publicKey;
       const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
-
       const balance = await connection.getBalance(senderPublicKey);
       const costInLamports = Math.round(amount * web3.LAMPORTS_PER_SOL);
-      
       if (balance < costInLamports) {
          throw new Error(`Insufficient balance! Need ${amount.toFixed(4)} SOL + Gas.`);
       }
-
       const transaction = new web3.Transaction().add(
         web3.SystemProgram.transfer({
           fromPubkey: senderPublicKey,
@@ -202,32 +212,19 @@ export default function CreateArenaPage() {
           lamports: costInLamports,
         })
       );
-
       const { blockhash } = await connection.getLatestBlockhash('confirmed');
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = senderPublicKey;
-
       const { signature } = await provider.signAndSendTransaction(transaction);
       setStatus('confirming');
       await pollSignatureStatus(connection, signature);
-      
       return { signature, wallet: senderPublicKey.toString() };
-
     } catch (err: any) {
       console.error("Payment Error:", err);
       setStatus('error');
-      
       const msg = err.message || "";
-      
-      // --- IMPROVED ERROR HANDLING ---
-      // Menangkap error umum "Unexpected error" atau "disconnected" dari Phantom
-      if (
-        msg.includes("disconnected port") || 
-        msg.includes("connection not established") || 
-        msg.includes("Unexpected error") ||
-        msg.includes("Something went wrong")
-      ) {
-         setErrorMsg("Wallet connection unstable. Please Refresh the page (F5).");
+      if (msg.includes("disconnected") || msg.includes("Unexpected")) {
+         setErrorMsg("Wallet connection unstable. Please Refresh (F5).");
       } else {
          setErrorMsg(msg || "Transaction cancelled or failed.");
       }
@@ -238,69 +235,50 @@ export default function CreateArenaPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supabase || !user) return;
-
-    // --- FORM VALIDATION ---
-
     if (formData.description.length < 20) {
       setStatus('error');
       setErrorMsg("Description must be at least 20 characters.");
       return;
     }
-
     const rewardVal = parseFloat(formData.reward);
     if (isNaN(rewardVal) || rewardVal < 0) {
        setStatus('error');
-       setErrorMsg("Please enter a valid reward amount (e.g. 0.5)");
+       setErrorMsg("Invalid reward amount");
        return;
     }
-
-    // --- NEW VALIDATION: MINIMUM REWARD ---
-    // Mencegah masalah 'Dust Limit' (hadiah terlalu kecil tidak terkirim)
     if (rewardVal > 0 && rewardVal < 0.01) {
         setStatus('error');
-        setErrorMsg("Minimum reward is 0.01 SOL to ensure successful blockchain payout.");
+        setErrorMsg("Minimum reward is 0.01 SOL");
         return;
     }
-
-    // --- DATE VALIDATION ---
     if (!formData.start_date || !formData.end_date) {
         setStatus('error');
-        setErrorMsg("Please select both start and end dates.");
+        setErrorMsg("Please select dates.");
         return;
     }
-
     const startTimestamp = new Date(`${formData.start_date}T00:00:00`).toISOString();
-    // End time diset ke akhir hari (23:59:59)
     const endTimestamp = new Date(`${formData.end_date}T23:59:59`).toISOString(); 
     const now = new Date();
-
-    // 1. End date must be AFTER Start date
     if (new Date(endTimestamp) <= new Date(startTimestamp)) {
         setStatus('error');
         setErrorMsg("End date must be after start date.");
         return;
     }
-
-    // 2. End date CANNOT be in the past
     if (new Date(endTimestamp) < now) {
         setStatus('error');
-        setErrorMsg("End date cannot be in the past. The arena would close immediately.");
+        setErrorMsg("End date cannot be in the past.");
         return;
     }
 
     try {
-      // 1. Execute Payment
       const paymentResult = await executeRealPayment(totalCost);
       if (!paymentResult) return;
 
       setStatus('saving');
-
-      // 2. Format Whitelist Data
       const whitelistArray = accessType === 'whitelist' 
         ? whitelistInput.split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 0)
         : null;
 
-      // 3. Insert to Database
       const { error, data } = await supabase.from('rooms').insert([
         { 
           title: formData.title,
@@ -309,22 +287,16 @@ export default function CreateArenaPage() {
           creator_wallet: paymentResult.wallet === 'system' ? user.email : paymentResult.wallet, 
           start_time: startTimestamp,
           end_time: endTimestamp,
-          
           reward: `${rewardVal} SOL`, 
-          
-          // Data for Distribution Bot
           reward_token_amount: rewardVal, 
           reward_token_symbol: 'SOL',
           distribution_status: 'pending',
-
           min_balance: parseFloat(formData.min_balance),
           entry_fee: parseFloat(formData.entry_fee) || 0,
-
           is_premium: accessType !== 'public',
           access_type: accessType,
           room_password: accessType === 'private' ? roomPassword : null,
           whitelist: whitelistArray,
-          
           is_paid: true, 
           payment_signature: paymentResult.signature,
           price_paid: totalCost, 
@@ -334,17 +306,60 @@ export default function CreateArenaPage() {
 
       if (error) throw error;
       setStatus('success');
-      
-      // Optional: Redirect after success if you want
-      // window.location.href = `/arena/${data.id}`;
-
     } catch (err: any) {
       setStatus('error');
       setErrorMsg('Failed to save: ' + err.message);
     }
   };
 
-  // Tampilkan loading screen sederhana saat session dicek
+  // --- TAMPILAN DEBUG ERROR SCREEN ---
+  if (debugInfo) {
+    return (
+      <div className="min-h-screen bg-[#0B0E11] text-white flex flex-col items-center justify-center p-8 font-mono">
+        <div className="bg-red-500/10 border border-red-500 rounded-xl p-8 max-w-2xl w-full">
+          <div className="flex items-center gap-4 mb-4 text-red-500">
+             <Bug size={32} />
+             <h1 className="text-2xl font-black uppercase">Debug Mode: Access Denied</h1>
+          </div>
+          <p className="mb-4 text-gray-400">
+            Halaman ini tidak me-redirect Anda agar kita bisa melihat errornya.
+            Screenshot layar ini jika perlu bantuan.
+          </p>
+          
+          <div className="space-y-4">
+             <div className="bg-black/50 p-4 rounded-lg">
+                <h3 className="font-bold text-[#FCD535] mb-2">1. Environment Variables</h3>
+                <pre className="text-xs text-green-400">{JSON.stringify(debugInfo.env, null, 2)}</pre>
+             </div>
+
+             <div className="bg-black/50 p-4 rounded-lg">
+                <h3 className="font-bold text-[#FCD535] mb-2">2. Error Details</h3>
+                <p className="text-sm font-bold text-white">{debugInfo.error}</p>
+                <pre className="text-xs text-gray-500 mt-2 whitespace-pre-wrap">
+                  {JSON.stringify(debugInfo.details, null, 2)}
+                </pre>
+             </div>
+
+             <div className="mt-6 flex gap-4">
+                <button 
+                  onClick={() => safeNavigate('/auth')} 
+                  className="bg-white text-black px-4 py-2 rounded-lg font-bold text-xs uppercase hover:bg-gray-200"
+                >
+                  Force Go to Login
+                </button>
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="bg-[#2B3139] text-white px-4 py-2 rounded-lg font-bold text-xs uppercase hover:bg-gray-700"
+                >
+                  Refresh Page
+                </button>
+             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoadingSession) {
     return (
       <div className="min-h-screen bg-[#0B0E11] flex items-center justify-center">
