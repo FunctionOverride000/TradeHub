@@ -15,26 +15,25 @@ import {
   Gift,
   Rocket,
   Zap,
-  Loader2
+  Loader2,
+  LogIn
 } from 'lucide-react';
 
-// PENTING: Gunakan createBrowserClient dari @supabase/ssr agar bisa membaca Cookies
 import { createBrowserClient } from '@supabase/ssr'; 
 import * as web3 from '@solana/web3.js';
 import { useLanguage } from '@/lib/LanguageContext';
 import { getLevelInfo } from '@/lib/levelUtils';
 import StatusOverlay from '@/components/ui/StatusOverlay'; 
 
-// --- SUPABASE CONFIGURATION (BROWSER CLIENT) ---
+// --- SUPABASE CONFIGURATION ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// --- FEES CONFIGURATION (REAL) ---
+// --- FEES CONFIGURATION ---
 const BASE_CREATION_FEE_SOL = 0.1; 
 const PRIVATE_FEE_SOL = 0.1;
 const WHITELIST_FEE_SOL = 0.2; 
 
-// Wallet Treasury & RPC
 const PLATFORM_TREASURY = "DLmtgDL1viNJUBzZvd91cLVkdKz4YkivCSpNKNKe6oLg"; 
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com'; 
 
@@ -44,6 +43,7 @@ export default function CreateArenaPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
+  const [debugStatus, setDebugStatus] = useState<string>(''); // Info debug
   
   // State Level & Privilege
   const [levelData, setLevelData] = useState<any>(null);
@@ -59,35 +59,47 @@ export default function CreateArenaPage() {
     description: '',
     start_date: '',
     end_date: '',
-    reward: '', // Input string
+    reward: '', 
     min_balance: '0',
     entry_fee: '0' 
   });
 
-  // Inisialisasi Supabase Client yang support Cookies
   const supabase = useMemo(() => createBrowserClient(supabaseUrl, supabaseAnonKey), []);
 
   const safeNavigate = (path: string) => {
     window.location.href = path;
   };
 
-  // 1. Check Auth Session & Fetch Level
+  // 1. Check Auth Session
   useEffect(() => {
     const init = async () => {
       setIsLoadingSession(true);
       
-      // Ambil session dari cookies (lebih akurat daripada getSession biasa)
+      // Diagnosa Awal: Cek apakah Env Var terbaca
+      if (!supabaseUrl || !supabaseAnonKey) {
+          setDebugStatus('CRITICAL: Supabase URL/Key is missing in Environment Variables!');
+          setIsLoadingSession(false);
+          return;
+      }
+
+      // Cek Session
       const { data: { user: currentUser }, error } = await supabase.auth.getUser();
 
       if (error || !currentUser) {
-        console.log("User not found in Create Arena, redirecting...", error);
-        safeNavigate('/auth');
+        console.error("Auth Error:", error);
+        // 🛑 REM DARURAT: JANGAN REDIRECT OTOMATIS
+        // Kita hanya set user null dan tampilkan pesan error di layar
+        // safeNavigate('/auth'); <-- KITA MATIKAN INI BIAR GAK MENTAL
+        
+        setDebugStatus(error ? error.message : 'User session not found (Cookie missing?)');
+        setUser(null);
+        setIsLoadingSession(false);
         return;
       }
 
       setUser(currentUser);
 
-      // Fetch Creator Level for Discounts
+      // Fetch Creator Level
       const { data: stats } = await supabase
         .from('user_stats')
         .select('*')
@@ -109,36 +121,28 @@ export default function CreateArenaPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // 2. Calculate Creation Fee Discount based on Level
+  // ... (Logic Fee & Payment tetap sama)
   const getCreationFee = () => {
     const level = levelData?.level || 1;
     let discount = 0;
-
-    if (level >= 50) discount = 1.0;      // Global Elite: Free
-    else if (level >= 30) discount = 0.5; // Whale: 50% Off
-    else if (level >= 10) discount = 0.2; // Dolphin: 20% Off
-
+    if (level >= 50) discount = 1.0;     
+    else if (level >= 30) discount = 0.5;
+    else if (level >= 10) discount = 0.2;
     const discountedFee = BASE_CREATION_FEE_SOL * (1 - discount);
     return { discountedFee, discount };
   };
 
   const { discountedFee, discount } = getCreationFee();
 
-  // 3. Calculate Total Cost (Discounted Fee + Premium Fee + Reward Deposit)
   const totalCost = useMemo(() => {
     let cost = discountedFee;
-    
-    // Additional premium fees (not discounted)
     if (accessType === 'private') cost += PRIVATE_FEE_SOL;
     if (accessType === 'whitelist') cost += WHITELIST_FEE_SOL;
-    
     const rewardDeposit = parseFloat(formData.reward) || 0;
     cost += rewardDeposit;
-    
     return cost;
   }, [accessType, formData.reward, discountedFee]);
 
-  // Helper: Poll transaction status
   const pollSignatureStatus = async (connection: web3.Connection, signature: string): Promise<boolean> => {
     let count = 0;
     while (count < 30) {
@@ -152,7 +156,6 @@ export default function CreateArenaPage() {
     throw new Error("Confirmation timeout.");
   };
 
-  // Helper: Detect Phantom Wallet
   const getProvider = () => {
     if (typeof window === 'undefined') return null;
     const phantom = (window as any).phantom?.solana;
@@ -162,39 +165,28 @@ export default function CreateArenaPage() {
     return null;
   };
 
-  // Solana Payment Logic
   const executeRealPayment = async (amount: number): Promise<{ signature: string, wallet: string } | null> => {
-    // If total cost is 0 (high level & 0 reward & basic features), skip payment
     if (amount <= 0) {
        return { signature: 'free_tier_bypass', wallet: 'system' };
     }
-
     const provider = getProvider();
-    
     if (!provider) {
       setStatus('error');
       setErrorMsg("Phantom Wallet not detected! Please install Phantom.");
       window.open('https://phantom.app/', '_blank');
       return null;
     }
-
     try {
       setStatus('paying');
       setErrorMsg(null);
-      
-      // CRITICAL STEP: Connect Wallet
       const resp = await provider.connect();
-      
       const senderPublicKey = resp.publicKey;
       const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
-
       const balance = await connection.getBalance(senderPublicKey);
       const costInLamports = Math.round(amount * web3.LAMPORTS_PER_SOL);
-      
       if (balance < costInLamports) {
          throw new Error(`Insufficient balance! Need ${amount.toFixed(4)} SOL + Gas.`);
       }
-
       const transaction = new web3.Transaction().add(
         web3.SystemProgram.transfer({
           fromPubkey: senderPublicKey,
@@ -202,30 +194,18 @@ export default function CreateArenaPage() {
           lamports: costInLamports,
         })
       );
-
       const { blockhash } = await connection.getLatestBlockhash('confirmed');
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = senderPublicKey;
-
       const { signature } = await provider.signAndSendTransaction(transaction);
       setStatus('confirming');
       await pollSignatureStatus(connection, signature);
-      
       return { signature, wallet: senderPublicKey.toString() };
-
     } catch (err: any) {
       console.error("Payment Error:", err);
       setStatus('error');
-      
       const msg = err.message || "";
-      
-      // --- IMPROVED ERROR HANDLING ---
-      if (
-        msg.includes("disconnected port") || 
-        msg.includes("connection not established") || 
-        msg.includes("Unexpected error") ||
-        msg.includes("Something went wrong")
-      ) {
+      if (msg.includes("disconnected port") || msg.includes("Unexpected error")) {
          setErrorMsg("Wallet connection unstable. Please Refresh the page (F5).");
       } else {
          setErrorMsg(msg || "Transaction cancelled or failed.");
@@ -238,45 +218,35 @@ export default function CreateArenaPage() {
     e.preventDefault();
     if (!supabase || !user) return;
 
-    // --- FORM VALIDATION ---
-
     if (formData.description.length < 20) {
       setStatus('error');
       setErrorMsg("Description must be at least 20 characters.");
       return;
     }
-
     const rewardVal = parseFloat(formData.reward);
     if (isNaN(rewardVal) || rewardVal < 0) {
        setStatus('error');
        setErrorMsg("Please enter a valid reward amount (e.g. 0.5)");
        return;
     }
-
-    // --- NEW VALIDATION: MINIMUM REWARD ---
     if (rewardVal > 0 && rewardVal < 0.01) {
         setStatus('error');
         setErrorMsg("Minimum reward is 0.01 SOL to ensure successful blockchain payout.");
         return;
     }
-
-    // --- DATE VALIDATION ---
     if (!formData.start_date || !formData.end_date) {
         setStatus('error');
         setErrorMsg("Please select both start and end dates.");
         return;
     }
-
     const startTimestamp = new Date(`${formData.start_date}T00:00:00`).toISOString();
     const endTimestamp = new Date(`${formData.end_date}T23:59:59`).toISOString(); 
     const now = new Date();
-
     if (new Date(endTimestamp) <= new Date(startTimestamp)) {
         setStatus('error');
         setErrorMsg("End date must be after start date.");
         return;
     }
-
     if (new Date(endTimestamp) < now) {
         setStatus('error');
         setErrorMsg("End date cannot be in the past. The arena would close immediately.");
@@ -284,18 +254,14 @@ export default function CreateArenaPage() {
     }
 
     try {
-      // 1. Execute Payment
       const paymentResult = await executeRealPayment(totalCost);
       if (!paymentResult) return;
 
       setStatus('saving');
-
-      // 2. Format Whitelist Data
       const whitelistArray = accessType === 'whitelist' 
         ? whitelistInput.split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 0)
         : null;
 
-      // 3. Insert to Database
       const { error, data } = await supabase.from('rooms').insert([
         { 
           title: formData.title,
@@ -304,22 +270,16 @@ export default function CreateArenaPage() {
           creator_wallet: paymentResult.wallet === 'system' ? user.email : paymentResult.wallet, 
           start_time: startTimestamp,
           end_time: endTimestamp,
-          
           reward: `${rewardVal} SOL`, 
-          
-          // Data for Distribution Bot
           reward_token_amount: rewardVal, 
           reward_token_symbol: 'SOL',
           distribution_status: 'pending',
-
           min_balance: parseFloat(formData.min_balance),
           entry_fee: parseFloat(formData.entry_fee) || 0,
-
           is_premium: accessType !== 'public',
           access_type: accessType,
           room_password: accessType === 'private' ? roomPassword : null,
           whitelist: whitelistArray,
-          
           is_paid: true, 
           payment_signature: paymentResult.signature,
           price_paid: totalCost, 
@@ -329,17 +289,59 @@ export default function CreateArenaPage() {
 
       if (error) throw error;
       setStatus('success');
-      
     } catch (err: any) {
       setStatus('error');
       setErrorMsg('Failed to save: ' + err.message);
     }
   };
 
+  // --- TAMPILAN JIKA AUTH GAGAL (BUKAN REDIRECT) ---
+  if (!isLoadingSession && !user) {
+      return (
+        <div className="min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans flex flex-col items-center justify-center p-6 text-center">
+            <div className="w-full max-w-md bg-[#1E2329] p-8 rounded-3xl border border-red-500/30 shadow-2xl">
+                <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6 text-red-500">
+                    <LogIn size={32} />
+                </div>
+                <h1 className="text-2xl font-black uppercase text-white mb-2">Authentication Required</h1>
+                <p className="text-sm text-[#848E9C] mb-6">
+                    {debugStatus || "We could not find your login session."}
+                </p>
+                
+                <div className="bg-[#0B0E11] p-4 rounded-xl mb-6 text-left">
+                    <p className="text-[10px] text-gray-500 uppercase font-bold mb-1">Diagnostic Info:</p>
+                    <code className="text-xs font-mono text-yellow-500 break-all">
+                        URL: {supabaseUrl ? '✅ Loaded' : '❌ MISSING'} <br/>
+                        KEY: {supabaseAnonKey ? '✅ Loaded' : '❌ MISSING'}
+                    </code>
+                </div>
+
+                <div className="flex gap-4">
+                    <button 
+                        onClick={() => safeNavigate('/')}
+                        className="flex-1 py-4 rounded-xl border border-[#2B3139] text-[#848E9C] font-bold text-xs uppercase hover:bg-[#2B3139]"
+                    >
+                        Back Home
+                    </button>
+                    <button 
+                        onClick={() => safeNavigate('/auth')}
+                        className="flex-1 py-4 rounded-xl bg-[#FCD535] text-black font-bold text-xs uppercase hover:bg-[#F0B90B]"
+                    >
+                        Log In Now
+                    </button>
+                </div>
+            </div>
+        </div>
+      );
+  }
+
   if (isLoadingSession) {
     return (
       <div className="min-h-screen bg-[#0B0E11] flex items-center justify-center">
-         <Loader2 className="animate-spin text-[#FCD535]" size={32} />
+         <div className="flex flex-col items-center gap-4">
+            <Loader2 className="animate-spin text-[#FCD535]" size={40} />
+            <p className="text-xs font-mono text-[#848E9C]">VERIFYING SESSION...</p>
+         </div>
       </div>
     );
   }
@@ -368,9 +370,8 @@ export default function CreateArenaPage() {
             <div className="flex items-center gap-4 md:gap-6">
               <div className="w-12 h-12 md:w-16 md:h-16 bg-[#FCD535] rounded-2xl flex items-center justify-center text-black shadow-lg shadow-[#FCD535]/10 shrink-0"><Trophy size={24} className="md:w-8 md:h-8" /></div>
               <div>
-                {/* --- PENANDA VISUAL VERCEL --- */}
                 <h1 className="text-xl md:text-3xl font-black uppercase tracking-tighter italic leading-none">
-                  [VERCEL TEST] Launch Arena
+                  [LIVE] Launch Arena
                 </h1>
                 <p className="text-[#848E9C] text-[9px] md:text-[10px] font-black uppercase tracking-widest mt-2 italic">
                   Create, Fund & Compete
@@ -380,8 +381,8 @@ export default function CreateArenaPage() {
           </div>
 
           <div className="p-6 md:p-10 space-y-6 md:space-y-8">
-            
-            {/* --- PRIVILEGE CARD (Diskon Level) --- */}
+            {/* --- FORM CONTENT DI SINI (SAMA SEPERTI SEBELUMNYA) --- */}
+            {/* PRIVILEGE CARD */}
             <div className="bg-gradient-to-r from-[#2B3139] to-[#1E2329] p-6 rounded-[2rem] border border-[#FCD535]/20 shadow-xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/5 rounded-full blur-[80px] pointer-events-none"></div>
                 <div className="flex flex-col md:flex-row items-center gap-6 relative z-10">
