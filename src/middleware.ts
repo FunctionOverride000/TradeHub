@@ -2,14 +2,24 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  // 1. Buat respons awal yang akan dimodifikasi
+  const path = request.nextUrl.pathname
+
+  // 1. BYPASS MUTLAK (Early Exit)
+  // Cek ini DULUAN sebelum inisialisasi Supabase atau logic lain.
+  // Ini menjamin tidak ada error server yang menghalangi akses ke halaman ini.
+  // Jika path adalah /create-arena, langsung izinkan lewat tanpa tanya-tanya.
+  if (path.startsWith('/create-arena')) {
+    return NextResponse.next()
+  }
+
+  // 2. Buat respons awal yang akan dimodifikasi
   let response = NextResponse.next({
     request: {
       headers: request.headers,
     },
   })
 
-  // 2. Inisialisasi Supabase Server Client untuk mengelola cookies
+  // 3. Inisialisasi Supabase Server Client untuk mengelola cookies
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -36,29 +46,17 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // 3. PENTING: Refresh session server-side.
+  // 4. PENTING: Refresh session server-side.
   const { data: { user } } = await supabase.auth.getUser()
 
-  // 4. Logika Redirect (Proteksi Rute)
-  const path = request.nextUrl.pathname
-
-  // --- SOLUSI BYPASS (FIX REDIRECT LOOP) ---
-  // Kita izinkan akses ke /create-arena tanpa dicegah oleh Middleware Server.
-  // Keamanan tetap terjaga karena di dalam file 'src/app/create-arena/page.tsx' 
-  // sudah ada useEffect yang mengecek session user (Client-Side Check).
-  if (path.startsWith('/create-arena')) {
-      return response;
-  }
-  // ----------------------------------------
-
-  // A. Proteksi Halaman Private
+  // 5. Proteksi Halaman Private
   // Jika user BELUM login (user null), tapi mencoba akses halaman dashboard/profile/admin/dll
   if (!user && (
     path.startsWith('/dashboard') || 
     path.startsWith('/profile') ||
-    // path.startsWith('/create-arena') ||  <-- BARIS INI KITA NONAKTIFKAN
     path.startsWith('/buat-lomba') ||
     path.startsWith('/admin')
+    // Catatan: /create-arena TIDAK dimasukkan di sini karena sudah di-bypass di atas
   )) {
     // Redirect paksa ke halaman login (/auth)
     const url = request.nextUrl.clone()
@@ -67,7 +65,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // B. Redirect User yang Sudah Login
+  // 6. Redirect User yang Sudah Login
   // Jika user SUDAH login, tapi mencoba buka halaman login (/auth)
   if (user && path.startsWith('/auth') && !path.startsWith('/auth/reset-password')) {
     // Redirect paksa ke dashboard (karena tidak perlu login lagi)
@@ -76,7 +74,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // C. Proteksi Khusus Admin (Opsional)
+  // 7. Proteksi Khusus Admin (Opsional)
   if (path.startsWith('/admin')) {
     if (!user) {
       return NextResponse.redirect(new URL('/auth', request.url))
