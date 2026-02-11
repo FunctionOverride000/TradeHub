@@ -1,0 +1,26 @@
+# Project ID akan otomatis terisi saat Anda menautkan project (supabase link)
+# project_id = "your-project-id"
+
+[functions.deposit-watcher]
+verify_jwt = false
+import_map = "./import_map.json"
+
+[functions.helius-webhook]
+verify_jwt = false
+import_map = "./import_map.json"
+
+[functions.distribute-rewards]
+verify_jwt = false
+import_map = "./import_map.json"
+
+[functions.distribute-global-dividends]
+verify_jwt = false
+import_map = "./import_map.json"
+
+[functions.apply-referral]
+verify_jwt = true
+import_map = "./import_map.json"
+
+[functions.delete-user]
+verify_jwt = true
+import_map = "./import_map.json"
