@@ -1,5 +1,6 @@
 "use client";
 
+import { BETA_LIMITS } from '@/constants/limits';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Trophy, 
@@ -46,7 +47,7 @@ export default function CreateArenaPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
-  const [debugStatus, setDebugStatus] = useState<string>(''); // Info debug
+  const [debugStatus, setDebugStatus] = useState<string>('');
   
   // State Level & Privilege
   const [levelData, setLevelData] = useState<any>(null);
@@ -79,26 +80,20 @@ export default function CreateArenaPage() {
     const init = async () => {
       setIsLoadingSession(true);
       
-      // Diagnosa Awal: Cek apakah Env Var terbaca
       if (!supabaseUrl || !supabaseAnonKey) {
           setDebugStatus('CRITICAL: Supabase URL/Key is missing in Environment Variables!');
           setIsLoadingSession(false);
           return;
       }
 
-      // AUDIT CHECK: RPC Configuration
       if (SOLANA_RPC.includes('mainnet-beta.solana.com')) {
           console.warn("⚠️ WARNING: Using Public Solana RPC. High risk of Rate Limit errors during payment!");
       }
 
-      // Cek Session menggunakan getUser (lebih stabil untuk SSR/Vercel)
       const { data: { user: currentUser }, error } = await supabase.auth.getUser();
 
       if (error || !currentUser) {
         console.error("Auth Error:", error);
-        // 🛑 REM DARURAT: JANGAN REDIRECT OTOMATIS
-        // Kita hanya set user null dan tampilkan pesan error di layar
-        // Ini kunci agar tidak mental ke dashboard jika session belum sinkron
         setDebugStatus(error ? error.message : 'User session not found (Cookie missing?)');
         setUser(null);
         setIsLoadingSession(false);
@@ -107,7 +102,6 @@ export default function CreateArenaPage() {
 
       setUser(currentUser);
 
-      // Fetch Creator Level
       const { data: stats } = await supabase
         .from('user_stats')
         .select('*')
@@ -129,7 +123,6 @@ export default function CreateArenaPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // Logic Perhitungan Fee & Diskon
   const getCreationFee = () => {
     const level = levelData?.level || 1;
     let discount = 0;
@@ -153,12 +146,10 @@ export default function CreateArenaPage() {
 
   const pollSignatureStatus = async (connection: web3.Connection, signature: string): Promise<boolean> => {
     let count = 0;
-    // AUDIT UPDATE: Increase timeout to 60s (30 * 2000ms) for congested network
     while (count < 30) {
       const { value } = await connection.getSignatureStatuses([signature]);
       const status = value[0];
       
-      // Accept 'confirmed' or 'finalized'
       if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
           return true;
       }
@@ -197,7 +188,6 @@ export default function CreateArenaPage() {
       const resp = await provider.connect();
       const senderPublicKey = resp.publicKey;
       
-      // AUDIT: Gunakan Custom RPC jika ada untuk reliability
       const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
       
       const balance = await connection.getBalance(senderPublicKey);
@@ -223,7 +213,6 @@ export default function CreateArenaPage() {
       
       setStatus('confirming');
       
-      // AUDIT: Tunggu konfirmasi blok sebelum lanjut menyimpan ke DB
       await pollSignatureStatus(connection, signature);
       
       return { signature, wallet: senderPublicKey.toString() };
@@ -232,7 +221,7 @@ export default function CreateArenaPage() {
       setStatus('error');
       const msg = err.message || "";
       if (msg.includes("User rejected") || msg.includes("0x1137")) {
-          setErrorMsg("Transaction cancelled by user."); // User rejected
+          setErrorMsg("Transaction cancelled by user.");
       } else if (msg.includes("disconnected port") || msg.includes("Unexpected error")) {
           setErrorMsg("Wallet connection unstable. Please Refresh (F5).");
       } else {
@@ -246,23 +235,32 @@ export default function CreateArenaPage() {
     e.preventDefault();
     if (!supabase || !user) return;
 
+    // ============================================
+    // BETA SAFETY VALIDATIONS - ENHANCED
+    // ============================================
+
     if (formData.description.length < 20) {
       setStatus('error');
-      setErrorMsg("Description must be at least 20 characters.");
+      setErrorMsg("Description must be at least 20 characters to explain rules clearly.");
       return;
     }
     
-    // AUDIT: Strict Validation untuk Reward
     const rewardVal = parseFloat(formData.reward);
     if (isNaN(rewardVal) || rewardVal < 0) {
        setStatus('error');
        setErrorMsg("Please enter a valid reward amount (e.g. 0.5)");
        return;
     }
-    // Jika ada reward, minimal 0.01 SOL untuk menghindari Dust
-    if (rewardVal > 0 && rewardVal < 0.01) {
+
+    if (rewardVal > 0 && rewardVal < BETA_LIMITS.MIN_REWARD_AMOUNT) {
         setStatus('error');
-        setErrorMsg("Minimum reward is 0.01 SOL to ensure successful blockchain payout.");
+        setErrorMsg(`Minimum reward is ${BETA_LIMITS.MIN_REWARD_AMOUNT} SOL to ensure successful blockchain payout.`);
+        return;
+    }
+
+    if (rewardVal > BETA_LIMITS.MAX_REWARD_PER_ARENA) {
+        setStatus('error');
+        setErrorMsg(`Beta limit: Maximum reward is ${BETA_LIMITS.MAX_REWARD_PER_ARENA} SOL per arena. This protects both you and participants during testing phase.`);
         return;
     }
 
@@ -273,7 +271,7 @@ export default function CreateArenaPage() {
     }
 
     const startTimestamp = new Date(`${formData.start_date}T00:00:00`).toISOString();
-    const endTimestamp = new Date(`${formData.end_date}T23:59:59`).toISOString(); 
+    const endTimestamp = new Date(`${formData.end_date}T23:59:59`).toISOString();
     const now = new Date();
 
     if (new Date(endTimestamp) <= new Date(startTimestamp)) {
@@ -281,58 +279,135 @@ export default function CreateArenaPage() {
         setErrorMsg("End date must be after start date.");
         return;
     }
+
     if (new Date(endTimestamp) < now) {
         setStatus('error');
         setErrorMsg("End date cannot be in the past. The arena would close immediately.");
         return;
     }
 
+    const durationMs = new Date(endTimestamp).getTime() - new Date(startTimestamp).getTime();
+    const durationHours = durationMs / (1000 * 60 * 60);
+    const durationDays = durationHours / 24;
+
+    if (durationHours < BETA_LIMITS.MIN_ARENA_DURATION_HOURS) {
+        setStatus('error');
+        setErrorMsg(`Arena must run for at least ${BETA_LIMITS.MIN_ARENA_DURATION_HOURS} hours (1 day). This ensures fair competition.`);
+        return;
+    }
+
+    if (durationDays > BETA_LIMITS.MAX_ARENA_DURATION_DAYS) {
+        setStatus('error');
+        setErrorMsg(`Arena cannot exceed ${BETA_LIMITS.MAX_ARENA_DURATION_DAYS} days. Long-term arenas will be available after beta.`);
+        return;
+    }
+
+    const entryFeeVal = parseFloat(formData.entry_fee) || 0;
+    if (entryFeeVal > BETA_LIMITS.MAX_ENTRY_FEE) {
+        setStatus('error');
+        setErrorMsg(`Beta limit: Maximum entry fee is ${BETA_LIMITS.MAX_ENTRY_FEE} SOL to protect participants.`);
+        return;
+    }
+
+    // ============================================
+    // PLATFORM CAPACITY CHECKS
+    // ============================================
+
     try {
-      // 1. Lakukan Pembayaran
+      const { data: activeArenas, error: activeError } = await supabase
+        .from('rooms')
+        .select('id')
+        .lte('start_time', new Date().toISOString())
+        .gte('end_time', new Date().toISOString())
+        .eq('distribution_status', 'pending');
+
+      if (activeError) throw activeError;
+
+      const currentActiveCount = activeArenas?.length || 0;
+
+      if (currentActiveCount >= BETA_LIMITS.MAX_CONCURRENT_ARENAS) {
+        setStatus('error');
+        setErrorMsg(`Platform at capacity! Currently ${currentActiveCount}/${BETA_LIMITS.MAX_CONCURRENT_ARENAS} active arenas. Please try again in a few hours when some arenas conclude.`);
+        return;
+      }
+
+      const { data: pendingRewards, error: tvlError } = await supabase
+        .from('rooms')
+        .select('reward_token_amount')
+        .eq('distribution_status', 'pending');
+
+      if (tvlError) throw tvlError;
+
+      const currentTVL = pendingRewards?.reduce(
+        (sum, room) => sum + (Number(room.reward_token_amount) || 0),
+        0
+      ) || 0;
+
+      if (currentTVL + rewardVal > BETA_LIMITS.MAX_TOTAL_TVL) {
+        setStatus('error');
+        setErrorMsg(
+          `Platform TVL limit reached!\n\n` +
+          `Current TVL: ${currentTVL.toFixed(2)} SOL\n` +
+          `Your reward: ${rewardVal} SOL\n` +
+          `Max allowed: ${BETA_LIMITS.MAX_TOTAL_TVL} SOL\n\n` +
+          `Please try smaller reward amount or wait for other arenas to conclude.`
+        );
+        return;
+      }
+
+      if (currentTVL + rewardVal > BETA_LIMITS.WARNING_TVL_THRESHOLD) {
+        console.warn(`⚠️ TVL Warning: ${currentTVL + rewardVal}/${BETA_LIMITS.MAX_TOTAL_TVL} SOL`);
+      }
+
+      // ============================================
+      // PAYMENT & DATABASE INSERT
+      // ============================================
+
       const paymentResult = await executeRealPayment(totalCost);
       if (!paymentResult) return;
 
       setStatus('saving');
 
-      const whitelistArray = accessType === 'whitelist' 
+      const whitelistArray = accessType === 'whitelist'
         ? whitelistInput.split(/[\n,]+/).map(s => s.trim()).filter(s => s.length > 0)
         : null;
 
-      // 2. Simpan ke Database
-      const { error } = await supabase.from('rooms').insert([
-        { 
+      const { error: insertError } = await supabase.from('rooms').insert([
+        {
           title: formData.title,
           description: formData.description,
           creator_id: user.id,
-          creator_wallet: paymentResult.wallet === 'system' ? user.email : paymentResult.wallet, 
+          creator_wallet: paymentResult.wallet === 'system' ? user.email : paymentResult.wallet,
           start_time: startTimestamp,
           end_time: endTimestamp,
-          reward: `${rewardVal} SOL`, 
-          reward_token_amount: rewardVal, 
+          reward: `${rewardVal} SOL`,
+          reward_token_amount: rewardVal,
           reward_token_symbol: 'SOL',
           distribution_status: 'pending',
           min_balance: parseFloat(formData.min_balance),
-          entry_fee: parseFloat(formData.entry_fee) || 0,
+          entry_fee: entryFeeVal,
           is_premium: accessType !== 'public',
           access_type: accessType,
           room_password: accessType === 'private' ? roomPassword : null,
           whitelist: whitelistArray,
-          is_paid: true, 
+          is_paid: true,
           payment_signature: paymentResult.signature,
-          price_paid: totalCost, 
+          price_paid: totalCost,
           edit_count: 0
         }
       ]).select().single();
 
-      if (error) throw error;
+      if (insertError) throw insertError;
+
       setStatus('success');
+
     } catch (err: any) {
+      console.error('Arena Creation Error:', err);
       setStatus('error');
-      setErrorMsg('Failed to save: ' + err.message);
+      setErrorMsg('Failed to create arena: ' + (err.message || 'Unknown error'));
     }
   };
 
-  // --- TAMPILAN JIKA AUTH GAGAL (MENCEGAH REDIRECT LOOP) ---
   if (!isLoadingSession && !user) {
       return (
         <div className="min-h-screen bg-[#0B0E11] text-[#EAECEF] font-sans flex flex-col items-center justify-center p-6 text-center">
@@ -388,6 +463,29 @@ export default function CreateArenaPage() {
       <div className="fixed inset-0 bg-[linear-gradient(rgba(30,33,38,0.5)_1px,transparent_1px),linear-gradient(90deg,rgba(30,33,38,0.5)_1px,transparent_1px)] bg-[size:30px_30px] md:bg-[size:40px_40px] opacity:10 pointer-events-none"></div>
       
       <div className="w-full max-w-2xl px-4 md:px-6 py-8 md:py-16 relative z-10">
+        
+        {/* BETA WARNING BANNER */}
+        {BETA_LIMITS.BETA_MODE && (
+          <div className="mb-6 bg-yellow-500/10 border-2 border-yellow-500/30 rounded-2xl p-5 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-start gap-4">
+              <div className="shrink-0 w-10 h-10 bg-yellow-500/20 rounded-xl flex items-center justify-center text-yellow-500">
+                <AlertCircle size={22} />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-black text-yellow-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  ⚠️ Beta Testing Phase
+                </h3>
+                <ul className="text-xs text-yellow-200/90 space-y-1 font-medium">
+                  <li>• Maximum reward: <strong className="text-yellow-400">{BETA_LIMITS.MAX_REWARD_PER_ARENA} SOL</strong> per arena</li>
+                  <li>• Platform capacity: <strong className="text-yellow-400">{BETA_LIMITS.MAX_CONCURRENT_ARENAS}</strong> concurrent arenas max</li>
+                  <li>• Your funds are held securely and distributed automatically to winners</li>
+                  <li>• Use small amounts during beta - limits will increase after testing</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-6 md:mb-10">
           <button 
             onClick={() => safeNavigate('/')} 
@@ -402,7 +500,6 @@ export default function CreateArenaPage() {
           
           <StatusOverlay status={status} onNavigate={safeNavigate} />
 
-          {/* HEADER FORM */}
           <div className="p-6 md:p-10 border-b border-[#2B3139] bg-[#1E2329]/50">
             <div className="flex items-center gap-4 md:gap-6">
               <div className="w-12 h-12 md:w-16 md:h-16 bg-[#FCD535] rounded-2xl flex items-center justify-center text-black shadow-lg shadow-[#FCD535]/10 shrink-0"><Trophy size={24} className="md:w-8 md:h-8" /></div>
@@ -419,7 +516,6 @@ export default function CreateArenaPage() {
 
           <div className="p-6 md:p-10 space-y-6 md:space-y-8">
             
-            {/* PRIVILEGE CARD */}
             <div className="bg-gradient-to-r from-[#2B3139] to-[#1E2329] p-6 rounded-[2rem] border border-[#FCD535]/20 shadow-xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/5 rounded-full blur-[80px] pointer-events-none"></div>
                 <div className="flex flex-col md:flex-row items-center gap-6 relative z-10">
@@ -479,12 +575,38 @@ export default function CreateArenaPage() {
                 <div className="space-y-2 md:space-y-3">
                   <label className="text-[10px] font-black text-[#FCD535] uppercase tracking-widest ml-1 flex items-center gap-1"><Gift size={12}/> Reward Pool (Deposit Required)</label>
                   <div className="relative">
-                      <input type="number" step="0.01" name="reward" required disabled={status !== 'idle'} value={formData.reward} onChange={handleChange} placeholder="e.g. 10" className="w-full bg-[#0B0E11] pl-4 pr-12 py-4 md:py-5 rounded-2xl border border-[#FCD535]/50 focus:border-[#FCD535] outline-none font-bold text-sm text-[#FCD535]" />
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        min={BETA_LIMITS.MIN_REWARD_AMOUNT}
+                        max={BETA_LIMITS.MAX_REWARD_PER_ARENA}
+                        name="reward" 
+                        required 
+                        disabled={status !== 'idle'} 
+                        value={formData.reward} 
+                        onChange={handleChange} 
+                        placeholder={`Min: ${BETA_LIMITS.MIN_REWARD_AMOUNT}, Max: ${BETA_LIMITS.MAX_REWARD_PER_ARENA}`}
+                        className="w-full bg-[#0B0E11] pl-4 pr-12 py-4 md:py-5 rounded-2xl border border-[#FCD535]/50 focus:border-[#FCD535] outline-none font-bold text-sm text-[#FCD535]" 
+                      />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[#848E9C] font-black text-xs">SOL</span>
                   </div>
-                  <p className="text-[9px] text-[#848E9C] leading-tight">
-                      *Reward will be automatically distributed to winners. Requires deposit now.
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[9px] text-[#848E9C] leading-tight">
+                      *Auto-distributed to winners. Requires deposit now.
+                    </p>
+                    <p className="text-[9px] font-bold text-yellow-500">
+                      Beta Max: {BETA_LIMITS.MAX_REWARD_PER_ARENA} SOL
+                    </p>
+                  </div>
+                  
+                  {parseFloat(formData.reward) > BETA_LIMITS.MAX_REWARD_PER_ARENA && (
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-center gap-2 animate-in fade-in">
+                      <AlertCircle size={16} className="text-red-500 shrink-0" />
+                      <p className="text-xs text-red-500 font-bold">
+                        Exceeds beta limit! Max {BETA_LIMITS.MAX_REWARD_PER_ARENA} SOL allowed.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2 md:space-y-3">
@@ -575,7 +697,6 @@ export default function CreateArenaPage() {
                 </div>
               </div>
 
-              {/* --- TOTAL PAYMENT SUMMARY --- */}
               <div className="bg-[#181A20] p-6 md:p-8 rounded-[1.5rem] md:rounded-[2rem] border border-[#2B3139] shadow-inner">
                 <div className="flex justify-between items-end mb-2">
                     <div className="max-w-[70%]">
