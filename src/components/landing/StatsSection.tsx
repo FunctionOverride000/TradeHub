@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '@/lib/LanguageContext';
 import { createClient } from '@/lib/supabase';
-import { Globe, Activity, Trophy, ShieldCheck } from 'lucide-react'; // Ganti Users dengan Activity
+import { Globe, Activity, Trophy, ShieldCheck } from 'lucide-react';
 import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
 
 export function StatsSection() {
@@ -12,13 +12,16 @@ export function StatsSection() {
   
   const [stats, setStats] = useState({
     activeArenas: 0,
-    globalSolanaVolume: 0, 
-    solanaMarketCap: 0, // Ganti Active Wallets dengan Market Cap
+    // Default fallback values (angka terakhir yang diketahui)
+    globalSolanaVolume: 4107884050, 
+    solanaMarketCap: 70000000000,   
   });
 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     // 1. Fetch Real Data untuk Arena dari Database Supabase
     const fetchArenaData = async () => {
       try {
@@ -29,46 +32,80 @@ export function StatsSection() {
           .eq('is_paid', true)
           .gt('end_time', now);
 
-        if (error) console.error("Error fetching arenas:", error);
+        if (error) throw error;
 
-        setStats(prev => ({
-          ...prev,
-          activeArenas: arenaCount || 0,
-        }));
-      } catch (error) {
-        console.error("Error fetching arena stats:", error);
-      }
-    };
-
-    // 2. Fetch Real Market Data dari CoinGecko API
-    // Menambahkan &include_market_cap=true
-    const fetchMarketData = async () => {
-      try {
-        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_vol=true&include_market_cap=true');
-        const data = await response.json();
-        
-        if (data && data.solana) {
-          setStats(prev => ({
-            ...prev,
-            globalSolanaVolume: data.solana.usd_24h_vol || 0,
-            solanaMarketCap: data.solana.usd_market_cap || 0 // Data Market Cap Asli
-          }));
+        if (isMounted) {
+          setStats(prev => ({ ...prev, activeArenas: arenaCount || 0 }));
         }
       } catch (error) {
-        console.error("Error fetching market data:", error);
+        // Silent catch for arena
       }
     };
 
-    // Jalankan fetch awal
+    // 2. Fetch Real Market Data dengan Sistem Cadangan (Backup)
+    const fetchMarketData = async () => {
+      // OPSI 1: Coba CoinGecko Dulu
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+        
+        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_vol=true&include_market_cap=true', {
+            signal: controller.signal,
+            headers: { 'Accept': 'application/json' }
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+            const data = await response.json();
+            if (isMounted && data && data.solana) {
+              setStats(prev => ({
+                ...prev,
+                globalSolanaVolume: data.solana.usd_24h_vol || prev.globalSolanaVolume,
+                solanaMarketCap: data.solana.usd_market_cap || prev.solanaMarketCap
+              }));
+              return; // Sukses! Keluar dari fungsi, tidak perlu coba opsi 2
+            }
+        }
+      } catch (e) {
+        // CoinGecko gagal/limit, lanjut ke Opsi 2...
+      }
+
+      // OPSI 2: Fallback ke CoinCap API (Jika CoinGecko Gagal)
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+        const response = await fetch('https://api.coincap.io/v2/assets/solana', { 
+            signal: controller.signal 
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+            const json = await response.json();
+            const data = json.data;
+            if (isMounted && data) {
+                setStats(prev => ({
+                    ...prev,
+                    globalSolanaVolume: parseFloat(data.volumeUsd24Hr) || prev.globalSolanaVolume,
+                    solanaMarketCap: parseFloat(data.marketCapUsd) || prev.solanaMarketCap
+                }));
+            }
+        }
+      } catch (e) {
+        // Semua API gagal, biarkan data lama (tidak update)
+      }
+    };
+
     const initData = async () => {
-        await Promise.all([fetchArenaData(), fetchMarketData()]);
-        setLoading(false);
+        await Promise.allSettled([fetchArenaData(), fetchMarketData()]);
+        if (isMounted) setLoading(false);
     };
 
     initData();
 
-    // Refresh Market Data setiap 60 detik agar selalu realtime
-    const marketInterval = setInterval(fetchMarketData, 60000);
+    // Interval Update Cepat (Setiap 15 Detik)
+    // Aman karena kita punya backup API jika salah satu kena rate limit
+    const marketInterval = setInterval(fetchMarketData, 15000);
     
     // Subscribe ke perubahan real-time pada tabel rooms
     const channel = supabase
@@ -79,6 +116,7 @@ export function StatsSection() {
       .subscribe();
 
     return () => {
+      isMounted = false;
       supabase.removeChannel(channel);
       clearInterval(marketInterval);
     };
@@ -90,15 +128,14 @@ export function StatsSection() {
       <div className="max-w-7xl mx-auto px-6 py-16 lg:py-24 grid grid-cols-2 md:grid-cols-4 gap-12 lg:gap-16 text-center relative z-10">
         
         <StatItem 
-          value={loading && stats.globalSolanaVolume === 0 ? "..." : <AnimatedCounter value={stats.globalSolanaVolume} prefix="$" decimals={0} />} 
+          value={loading ? "..." : <AnimatedCounter value={stats.globalSolanaVolume} prefix="$" decimals={0} />} 
           label="Global SOL 24H Volume" 
           icon={<Globe size={24} className="text-[#0ECB81]" />} 
           sub="Real-time Market Data"
         />
         
-        {/* Menggunakan Market Cap sebagai pengganti Active Wallets */}
         <StatItem 
-          value={loading && stats.solanaMarketCap === 0 ? "..." : <AnimatedCounter value={stats.solanaMarketCap} prefix="$" decimals={0} />} 
+          value={loading ? "..." : <AnimatedCounter value={stats.solanaMarketCap} prefix="$" decimals={0} />} 
           label="Solana Market Cap" 
           icon={<Activity size={24} className="text-[#3b82f6]" />} 
           sub="Global Ecosystem Value"

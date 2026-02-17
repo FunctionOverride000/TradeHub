@@ -1,5 +1,6 @@
 import React from 'react';
-import { Loader2, TrendingUp } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import Image from 'next/image';
 
 export default function Loading() {
   return (
@@ -27,10 +28,16 @@ export default function Loading() {
                 {/* Inner Counter-Rotating Border */}
                 <div className="absolute inset-2 rounded-full border-2 border-b-[#FCD535] border-l-transparent border-t-[#FCD535]/30 border-r-transparent animate-[spin_3s_linear_infinite_reverse]"></div>
 
-                {/* Central Icon */}
+                {/* Central Icon - Fixed: Removed solid yellow background box */}
                 <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-12 h-12 bg-[#FCD535] rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(252,213,53,0.3)] animate-pulse">
-                         <TrendingUp className="w-7 h-7 text-[#0B0E11]" />
+                    <div className="w-14 h-14 flex items-center justify-center animate-pulse">
+                         <Image 
+                           src="/proofofachievement.png" 
+                           alt="TradeHub Logo" 
+                           width={56} 
+                           height={56} 
+                           className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(252,213,53,0.6)]"
+                         />
                     </div>
                 </div>
             </div>
