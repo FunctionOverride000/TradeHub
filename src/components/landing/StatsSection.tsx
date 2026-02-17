@@ -12,9 +12,9 @@ export function StatsSection() {
   
   const [stats, setStats] = useState({
     activeArenas: 0,
-    // Default fallback values (angka terakhir yang diketahui)
-    globalSolanaVolume: 4107884050, 
-    solanaMarketCap: 70000000000,   
+    // Inisialisasi dengan 0, jangan pakai angka default palsu
+    globalSolanaVolume: 0, 
+    solanaMarketCap: 0,   
   });
 
   const [loading, setLoading] = useState(true);
@@ -60,6 +60,7 @@ export function StatsSection() {
             if (isMounted && data && data.solana) {
               setStats(prev => ({
                 ...prev,
+                // Gunakan nilai baru, atau pertahankan nilai lama jika ada (jangan kembali ke 0)
                 globalSolanaVolume: data.solana.usd_24h_vol || prev.globalSolanaVolume,
                 solanaMarketCap: data.solana.usd_market_cap || prev.solanaMarketCap
               }));
@@ -128,20 +129,22 @@ export function StatsSection() {
       <div className="max-w-7xl mx-auto px-6 py-16 lg:py-24 grid grid-cols-2 md:grid-cols-4 gap-12 lg:gap-16 text-center relative z-10">
         
         <StatItem 
-          value={loading ? "..." : <AnimatedCounter value={stats.globalSolanaVolume} prefix="$" decimals={0} />} 
+          // Logika: Jika masih loading ATAU nilainya masih 0 (belum dapat data), tampilkan "..."
+          value={(loading || stats.globalSolanaVolume === 0) ? "..." : <AnimatedCounter value={stats.globalSolanaVolume} prefix="$" decimals={0} />} 
           label="Global SOL 24H Volume" 
           icon={<Globe size={24} className="text-[#0ECB81]" />} 
           sub="Real-time Market Data"
         />
         
         <StatItem 
-          value={loading ? "..." : <AnimatedCounter value={stats.solanaMarketCap} prefix="$" decimals={0} />} 
+          value={(loading || stats.solanaMarketCap === 0) ? "..." : <AnimatedCounter value={stats.solanaMarketCap} prefix="$" decimals={0} />} 
           label="Solana Market Cap" 
           icon={<Activity size={24} className="text-[#3b82f6]" />} 
           sub="Global Ecosystem Value"
         />
 
         <StatItem 
+          // Arena boleh 0 jika memang tidak ada arena aktif, jadi hanya cek loading state
           value={loading ? "..." : <AnimatedCounter value={stats.activeArenas} />} 
           label={t.landing.stats.arenas} 
           icon={<Trophy size={24} className="text-[#FCD535]" />} 
