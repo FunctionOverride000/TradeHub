@@ -17,7 +17,8 @@ import {
   Rocket,
   Zap,
   Loader2,
-  LogIn
+  LogIn,
+  CheckSquare
 } from 'lucide-react';
 
 import { createBrowserClient } from '@supabase/ssr'; 
@@ -35,10 +36,7 @@ const BASE_CREATION_FEE_SOL = 0.1;
 const PRIVATE_FEE_SOL = 0.1;
 const WHITELIST_FEE_SOL = 0.2; 
 
-// AUDIT FIX: Pindahkan Treasury ke Env Variable agar mudah diganti jika compromised
 const PLATFORM_TREASURY = process.env.NEXT_PUBLIC_TREASURY_WALLET || "DLmtgDL1viNJUBzZvd91cLVkdKz4YkivCSpNKNKe6oLg"; 
-
-// AUDIT FIX: Warning jika menggunakan Public RPC (Rate Limit Risk)
 const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com'; 
 
 export default function CreateArenaPage() {
@@ -48,6 +46,9 @@ export default function CreateArenaPage() {
   const [user, setUser] = useState<any>(null);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
   const [debugStatus, setDebugStatus] = useState<string>('');
+  
+  // NEW: Consent checkbox state
+  const [hasConsented, setHasConsented] = useState(false);
   
   // State Level & Privilege
   const [levelData, setLevelData] = useState<any>(null);
@@ -68,14 +69,12 @@ export default function CreateArenaPage() {
     entry_fee: '0' 
   });
 
-  // INITIALIZE SUPABASE CLIENT (SSR COMPATIBLE)
   const supabase = useMemo(() => createBrowserClient(supabaseUrl, supabaseAnonKey), []);
 
   const safeNavigate = (path: string) => {
     window.location.href = path;
   };
 
-  // 1. Check Auth Session
   useEffect(() => {
     const init = async () => {
       setIsLoadingSession(true);
@@ -235,9 +234,12 @@ export default function CreateArenaPage() {
     e.preventDefault();
     if (!supabase || !user) return;
 
-    // ============================================
-    // BETA SAFETY VALIDATIONS - ENHANCED
-    // ============================================
+    // NEW: Check consent
+    if (!hasConsented) {
+      setStatus('error');
+      setErrorMsg("You must read and agree to the Terms of Service before creating an arena.");
+      return;
+    }
 
     if (formData.description.length < 20) {
       setStatus('error');
@@ -309,10 +311,6 @@ export default function CreateArenaPage() {
         return;
     }
 
-    // ============================================
-    // PLATFORM CAPACITY CHECKS
-    // ============================================
-
     try {
       const { data: activeArenas, error: activeError } = await supabase
         .from('rooms')
@@ -346,11 +344,7 @@ export default function CreateArenaPage() {
       if (currentTVL + rewardVal > BETA_LIMITS.MAX_TOTAL_TVL) {
         setStatus('error');
         setErrorMsg(
-          `Platform TVL limit reached!\n\n` +
-          `Current TVL: ${currentTVL.toFixed(2)} SOL\n` +
-          `Your reward: ${rewardVal} SOL\n` +
-          `Max allowed: ${BETA_LIMITS.MAX_TOTAL_TVL} SOL\n\n` +
-          `Please try smaller reward amount or wait for other arenas to conclude.`
+          `Platform TVL limit reached! Current: ${currentTVL.toFixed(2)} SOL, Your reward: ${rewardVal} SOL, Max: ${BETA_LIMITS.MAX_TOTAL_TVL} SOL. Please try smaller reward or wait for other arenas to conclude.`
         );
         return;
       }
@@ -358,10 +352,6 @@ export default function CreateArenaPage() {
       if (currentTVL + rewardVal > BETA_LIMITS.WARNING_TVL_THRESHOLD) {
         console.warn(`⚠️ TVL Warning: ${currentTVL + rewardVal}/${BETA_LIMITS.MAX_TOTAL_TVL} SOL`);
       }
-
-      // ============================================
-      // PAYMENT & DATABASE INSERT
-      // ============================================
 
       const paymentResult = await executeRealPayment(totalCost);
       if (!paymentResult) return;
@@ -472,7 +462,7 @@ export default function CreateArenaPage() {
                 <AlertCircle size={22} />
               </div>
               <div className="flex-1">
-                <h3 className="text-sm font-black text-yellow-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <h3 className="text-sm font-black text-yellow-500 uppercase tracking-wider mb-2">
                   ⚠️ Beta Testing Phase
                 </h3>
                 <ul className="text-xs text-yellow-200/90 space-y-1 font-medium">
@@ -502,7 +492,9 @@ export default function CreateArenaPage() {
 
           <div className="p-6 md:p-10 border-b border-[#2B3139] bg-[#1E2329]/50">
             <div className="flex items-center gap-4 md:gap-6">
-              <div className="w-12 h-12 md:w-16 md:h-16 bg-[#FCD535] rounded-2xl flex items-center justify-center text-black shadow-lg shadow-[#FCD535]/10 shrink-0"><Trophy size={24} className="md:w-8 md:h-8" /></div>
+              <div className="w-12 h-12 md:w-16 md:h-16 bg-[#FCD535] rounded-2xl flex items-center justify-center text-black shadow-lg shadow-[#FCD535]/10 shrink-0">
+                <Trophy size={24} className="md:w-8 md:h-8" />
+              </div>
               <div>
                 <h1 className="text-xl md:text-3xl font-black uppercase tracking-tighter italic leading-none">
                   Launch Arena
@@ -516,6 +508,7 @@ export default function CreateArenaPage() {
 
           <div className="p-6 md:p-10 space-y-6 md:space-y-8">
             
+            {/* PRIVILEGE CARD */}
             <div className="bg-gradient-to-r from-[#2B3139] to-[#1E2329] p-6 rounded-[2rem] border border-[#FCD535]/20 shadow-xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-[#FCD535]/5 rounded-full blur-[80px] pointer-events-none"></div>
                 <div className="flex flex-col md:flex-row items-center gap-6 relative z-10">
@@ -573,11 +566,13 @@ export default function CreateArenaPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-8">
                 <div className="space-y-2 md:space-y-3">
-                  <label className="text-[10px] font-black text-[#FCD535] uppercase tracking-widest ml-1 flex items-center gap-1"><Gift size={12}/> Reward Pool (Deposit Required)</label>
+                  <label className="text-[10px] font-black text-[#FCD535] uppercase tracking-widest ml-1 flex items-center gap-1">
+                    <Gift size={12}/> Reward Pool (Deposit Required)
+                  </label>
                   <div className="relative">
                       <input 
                         type="number" 
-                        step="0.01" 
+                        step="0.01"
                         min={BETA_LIMITS.MIN_REWARD_AMOUNT}
                         max={BETA_LIMITS.MAX_REWARD_PER_ARENA}
                         name="reward" 
@@ -598,7 +593,6 @@ export default function CreateArenaPage() {
                       Beta Max: {BETA_LIMITS.MAX_REWARD_PER_ARENA} SOL
                     </p>
                   </div>
-                  
                   {parseFloat(formData.reward) > BETA_LIMITS.MAX_REWARD_PER_ARENA && (
                     <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-center gap-2 animate-in fade-in">
                       <AlertCircle size={16} className="text-red-500 shrink-0" />
@@ -645,27 +639,15 @@ export default function CreateArenaPage() {
                 </div>
                 
                 <div className="grid grid-cols-3 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setAccessType('public')}
-                    className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${accessType === 'public' ? 'bg-[#FCD535]/10 border-[#FCD535] text-[#FCD535]' : 'bg-[#0B0E11] border-[#2B3139] text-[#848E9C] hover:bg-[#2B3139]'}`}
-                  >
+                  <button type="button" onClick={() => setAccessType('public')} className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${accessType === 'public' ? 'bg-[#FCD535]/10 border-[#FCD535] text-[#FCD535]' : 'bg-[#0B0E11] border-[#2B3139] text-[#848E9C] hover:bg-[#2B3139]'}`}>
                     <Globe size={20} />
                     <span className="text-[9px] font-black uppercase tracking-wider">Public</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setAccessType('private')}
-                    className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${accessType === 'private' ? 'bg-[#FCD535]/10 border-[#FCD535] text-[#FCD535]' : 'bg-[#0B0E11] border-[#2B3139] text-[#848E9C] hover:bg-[#2B3139]'}`}
-                  >
+                  <button type="button" onClick={() => setAccessType('private')} className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${accessType === 'private' ? 'bg-[#FCD535]/10 border-[#FCD535] text-[#FCD535]' : 'bg-[#0B0E11] border-[#2B3139] text-[#848E9C] hover:bg-[#2B3139]'}`}>
                     <Lock size={20} />
                     <span className="text-[9px] font-black uppercase tracking-wider">Private</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setAccessType('whitelist')}
-                    className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${accessType === 'whitelist' ? 'bg-[#FCD535]/10 border-[#FCD535] text-[#FCD535]' : 'bg-[#0B0E11] border-[#2B3139] text-[#848E9C] hover:bg-[#2B3139]'}`}
-                  >
+                  <button type="button" onClick={() => setAccessType('whitelist')} className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${accessType === 'whitelist' ? 'bg-[#FCD535]/10 border-[#FCD535] text-[#FCD535]' : 'bg-[#0B0E11] border-[#2B3139] text-[#848E9C] hover:bg-[#2B3139]'}`}>
                     <Users size={20} />
                     <span className="text-[9px] font-black uppercase tracking-wider">Whitelist</span>
                   </button>
@@ -697,6 +679,7 @@ export default function CreateArenaPage() {
                 </div>
               </div>
 
+              {/* TOTAL PAYMENT SUMMARY */}
               <div className="bg-[#181A20] p-6 md:p-8 rounded-[1.5rem] md:rounded-[2rem] border border-[#2B3139] shadow-inner">
                 <div className="flex justify-between items-end mb-2">
                     <div className="max-w-[70%]">
@@ -728,17 +711,93 @@ export default function CreateArenaPage() {
                 </div>
               </div>
 
+              {/* ===================================================== */}
+              {/* CONSENT CHECKBOX - NEW ADDITION BEFORE SUBMIT BUTTON  */}
+              {/* ===================================================== */}
+              <div 
+                onClick={() => setHasConsented(!hasConsented)}
+                className={`
+                  p-5 rounded-2xl border-2 cursor-pointer transition-all duration-200
+                  ${hasConsented 
+                    ? 'bg-green-500/10 border-green-500/50' 
+                    : 'bg-[#1E2329] border-[#2B3139] hover:border-[#FCD535]/30'
+                  }
+                `}
+              >
+                <div className="flex items-start gap-4">
+                  
+                  {/* Checkbox Visual */}
+                  <div className={`
+                    shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center mt-0.5 transition-all
+                    ${hasConsented 
+                      ? 'bg-green-500 border-green-500' 
+                      : 'bg-[#0B0E11] border-[#474D57]'
+                    }
+                  `}>
+                    {hasConsented && (
+                      <svg width="12" height="10" viewBox="0 0 12 10" fill="none">
+                        <path d="M1 5L4.5 8.5L11 1.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </div>
+
+                  {/* Text */}
+                  <div className="flex-1">
+                    <p className={`text-xs font-bold mb-2 transition-colors ${hasConsented ? 'text-green-400' : 'text-[#EAECEF]'}`}>
+                      {hasConsented ? '✓ Terms Accepted' : 'I Agree to Terms of Service'}
+                    </p>
+                    <ul className="text-[10px] text-[#848E9C] space-y-1 leading-relaxed">
+                      <li>• This is <strong className="text-[#EAECEF]">beta software</strong> — use at your own risk</li>
+                      <li>• Platform holds my <strong className="text-[#FCD535]">{totalCost.toFixed(2)} SOL</strong> until arena ends, then auto-distributes to winners</li>
+                      <li>• I will NOT receive a refund if I make an error in arena setup</li>
+                      <li>• I have read and accept the{' '}
+                        <a 
+                          href="/terms" 
+                          target="_blank"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[#FCD535] underline hover:text-[#F0B90B]"
+                        >
+                          Terms of Service
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              {/* ===================================================== */}
+              {/* END CONSENT CHECKBOX                                   */}
+              {/* ===================================================== */}
+
+              {/* SUBMIT BUTTON */}
               <button 
                 type="submit" 
-                disabled={status !== 'idle' && status !== 'error'} 
-                className="w-full bg-[#FCD535] text-black font-black py-5 md:py-6 rounded-2xl hover:bg-[#F0B90B] transition-all flex items-center justify-center gap-4 uppercase text-[10px] md:text-xs tracking-[0.3em] shadow-xl shadow-[#FCD535]/10 active:scale-95 disabled:opacity-50"
+                disabled={(status !== 'idle' && status !== 'error') || !hasConsented} 
+                className={`
+                  w-full font-black py-5 md:py-6 rounded-2xl transition-all flex items-center justify-center gap-4 
+                  uppercase text-[10px] md:text-xs tracking-[0.3em] shadow-xl active:scale-95
+                  ${hasConsented
+                    ? 'bg-[#FCD535] text-black hover:bg-[#F0B90B] shadow-[#FCD535]/10 cursor-pointer'
+                    : 'bg-[#2B3139] text-[#474D57] cursor-not-allowed opacity-60'
+                  }
+                  disabled:opacity-50 disabled:cursor-not-allowed
+                `}
               >
                 {status === 'paying' || status === 'confirming' || status === 'saving' ? (
                     <Loader2 className="animate-spin" size={20} />
+                ) : !hasConsented ? (
+                    <><CheckSquare size={20}/> Accept Terms to Continue</>
                 ) : (
                     <><CreditCard size={20}/> Pay & Activate</>
                 )}
               </button>
+
+              {/* Helper text below button */}
+              {!hasConsented && (
+                <p className="text-center text-[10px] text-[#474D57] -mt-4">
+                  ☝️ Check the box above to enable payment
+                </p>
+              )}
+
             </form>
           </div>
         </div>

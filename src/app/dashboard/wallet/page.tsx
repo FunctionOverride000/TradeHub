@@ -31,22 +31,52 @@ import UserSidebar from '@/components/dashboard/UserSidebar';
 // Initialize Supabase using the helper (no args needed as they are in the helper)
 const supabase = createClient();
 
-const SOLANA_RPC = process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL || 'https://api.mainnet-beta.solana.com';
+// List of fallback RPCs to try - Improved list with more robust public endpoints
+// Note: Many public RPCs have rate limits. Using a paid RPC in production is recommended.
+const RPC_ENDPOINTS = [
+  // Prioritize Alchemy/Helius if available (user provided env)
+  process.env.NEXT_PUBLIC_ALCHEMY_SOLANA_URL,
+  process.env.NEXT_PUBLIC_HELIUS_SOLANA_URL,
+  // Reliable Public RPCs (ordered by likely uptime/rate-limit friendliness)
+  'https://api.mainnet-beta.solana.com', 
+  'https://solana-api.projectserum.com',
+  'https://rpc.ankr.com/solana',
+  'https://solana-mainnet.rpc.extrnode.com',
+  'https://1rpc.io/sol',
+].filter(Boolean) as string[];
 
 /**
- * FUNGSI AMBIL SALDO REAL (ON-CHAIN)
+ * FUNGSI AMBIL SALDO REAL (ON-CHAIN) dengan Rotasi RPC
  */
-const fetchOnChainBalance = async (walletAddress: string): Promise<number> => {
-  if (!walletAddress || !SOLANA_RPC) return 0;
-  try {
-    const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
-    const publicKey = new web3.PublicKey(walletAddress);
-    const balance = await connection.getBalance(publicKey);
-    return balance / web3.LAMPORTS_PER_SOL;
-  } catch (err) {
-    console.error("Failed to fetch balance:", err);
-    return 0;
+const fetchOnChainBalance = async (walletAddress: string): Promise<number | null> => {
+  if (!walletAddress) return 0;
+
+  for (const rpcUrl of RPC_ENDPOINTS) {
+    try {
+      // console.log(`Trying to fetch balance from: ${rpcUrl}`); // Reduced log noise
+      const connection = new web3.Connection(rpcUrl, 'confirmed');
+      const publicKey = new web3.PublicKey(walletAddress);
+      
+      // Add a timeout promise to prevent hanging on slow RPCs (8 seconds)
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('RPC Timeout')), 8000) 
+      );
+      
+      const balance = await Promise.race([
+        connection.getBalance(publicKey),
+        timeoutPromise
+      ]) as number;
+
+      return balance / web3.LAMPORTS_PER_SOL;
+    } catch (err) {
+      // Silent fail for individual RPCs to try next one
+      // console.warn(`Failed to fetch from ${rpcUrl}:`, err);
+    }
   }
+
+  // If all fail, return null to indicate failure (handled in UI) rather than 0
+  // console.error("All RPC endpoints failed."); // Suppress error to avoid console noise
+  return null; 
 };
 
 interface ParticipantData {
@@ -121,33 +151,66 @@ export default function WalletPage() {
   const updateAllBalances = async (currentList?: ParticipantData[]) => {
     const listToSync = currentList || registrations;
     setIsRefreshing(true);
-    try {
-      const connection = new web3.Connection(SOLANA_RPC, 'confirmed');
+    setErrorMsg(""); // Clear previous errors
 
+    try {
+      // 1. Fetch Live Wallet Balance
       if (connectedWallet) {
         const balance = await fetchOnChainBalance(connectedWallet);
-        setLiveBalance(balance);
+        if (balance !== null) {
+            setLiveBalance(balance);
+        } else {
+            // console.warn("Could not fetch live balance from any RPC.");
+            // Don't set error message yet if we can still fetch registration data
+        }
       }
 
+      // 2. Fetch Participant Balances (Active Capital)
       if (listToSync.length > 0) {
-        const publicKeys = listToSync.map(p => new web3.PublicKey(p.wallet_address));
-        // Handle chunking if too many accounts (Solana RPC limit is usually 100)
-        // For simplicity assuming list < 100 here, but good to keep in mind
-        const accountsInfo = await connection.getMultipleAccountsInfo(publicKeys);
+        let connection: web3.Connection | null = null;
+        
+        // Find a working connection for multiple accounts fetch
+        for (const rpcUrl of RPC_ENDPOINTS) {
+            try {
+                const conn = new web3.Connection(rpcUrl, 'confirmed');
+                // Test connection simply with version check or getSlot
+                // Using a timeout race to ensure we don't hang
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000));
+                await Promise.race([conn.getSlot(), timeoutPromise]); 
+                
+                connection = conn;
+                break;
+            } catch (e) {
+                // console.warn(`Skipping RPC for multi-fetch: ${rpcUrl}`);
+            }
+        }
 
-        const verifiedList = listToSync.map((p, idx) => {
-          const info = accountsInfo[idx];
-          const liveCurrent = info ? info.lamports / web3.LAMPORTS_PER_SOL : p.current_balance;
-          return { ...p, current_balance: liveCurrent };
-        });
+        if (!connection) {
+            // throw new Error("No working RPC connection found for capital sync.");
+            console.warn("No working RPC connection found for capital sync.");
+            // If capital sync fails, we just don't update it, keeping old data or 0
+            // but we don't want to crash the whole flow
+        } else {
+            const publicKeys = listToSync.map(p => new web3.PublicKey(p.wallet_address));
+            // Handle chunking if too many accounts (Solana RPC limit is usually 100)
+            // For simplicity assuming list < 100 here, but good to keep in mind
+            const accountsInfo = await connection.getMultipleAccountsInfo(publicKeys);
 
-        setRegistrations(verifiedList);
-        const totalCap = verifiedList.reduce((acc, curr) => acc + curr.current_balance, 0);
-        setActiveCapital(totalCap);
+            const verifiedList = listToSync.map((p, idx) => {
+              const info = accountsInfo[idx];
+              const liveCurrent = info ? info.lamports / web3.LAMPORTS_PER_SOL : p.current_balance;
+              return { ...p, current_balance: liveCurrent };
+            });
+
+            setRegistrations(verifiedList);
+            const totalCap = verifiedList.reduce((acc, curr) => acc + curr.current_balance, 0);
+            setActiveCapital(totalCap);
+        }
       }
     } catch (err) {
-      console.error("Sync failed:", err);
-      setErrorMsg("Gagal sinkronisasi blockchain.");
+      console.error("Sync warning:", err);
+      // Soft error message
+      setErrorMsg("Sinkronisasi lambat/gagal. Data mungkin tidak realtime.");
     } finally {
       setIsRefreshing(false);
     }
@@ -182,7 +245,7 @@ export default function WalletPage() {
         }
 
       } catch (err: any) {
-        setErrorMsg("Koneksi Database bermasalah.");
+        // setErrorMsg("Koneksi Database bermasalah."); // Silent error for database connectivity
       } finally {
         setIsLoading(false);
       }
@@ -191,18 +254,38 @@ export default function WalletPage() {
     fetchData();
   }, [user, connectedWallet]); // Re-fetch when user is set or wallet connects
 
+  // --- LOGIKA KONEKSI DOMPET (UPDATED FOR MOBILE) ---
   const handleConnectWallet = async () => {
     const provider = (window as any).solana;
-    if (!provider?.isPhantom) {
-      // Changed to window.alert to be explicit, though custom modal is better UI
-      window.alert(t.admin.phantom_not_found); 
-      window.open("https://phantom.app/", "_blank");
-      return;
+    
+    // 1. Cek jika provider Phantom sudah ada (Desktop Extension atau In-App Browser)
+    if (provider?.isPhantom) {
+        try {
+          const resp = await provider.connect();
+          setConnectedWallet(resp.publicKey.toString());
+        } catch (err) {
+            console.error("User rejected connection", err);
+        }
+        return;
     }
-    try {
-      const resp = await provider.connect();
-      setConnectedWallet(resp.publicKey.toString());
-    } catch (err) {}
+
+    // 2. Jika tidak ada provider, cek apakah user menggunakan Mobile Device
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+    if (isMobile) {
+        // 3. Logic Deep Link Universal untuk Mobile
+        // Ini akan membuka aplikasi Phantom dan memuat halaman ini di dalamnya
+        const currentUrl = window.location.href;
+        const ref = window.location.origin; 
+        const phantomDeepLink = `https://phantom.app/ul/browse/${encodeURIComponent(currentUrl)}?ref=${encodeURIComponent(ref)}`;
+        
+        // Redirect ke Phantom App
+        window.location.href = phantomDeepLink;
+    } else {
+        // 4. Fallback Desktop: Arahkan ke website Phantom untuk install extension
+        window.alert(t.admin.phantom_not_found); 
+        window.open("https://phantom.app/", "_blank");
+    }
   };
 
   const handleDisconnect = async () => {
@@ -305,37 +388,37 @@ export default function WalletPage() {
                  <div className="absolute top-0 right-0 w-48 h-48 bg-[#FCD535] rounded-full blur-[100px] opacity-5 pointer-events-none"></div>
                  
                  <div className="relative mb-8">
-                    <div className={`w-24 h-24 rounded-[2rem] bg-[#0B0E11] border-2 flex items-center justify-center transition-all duration-500 ${connectedWallet ? 'border-[#0ECB81] text-[#0ECB81] shadow-[0_0_40px_rgba(14,203,129,0.1)]' : 'border-[#2B3139] text-[#474D57]'}`}>
-                       <Wallet size={44} />
-                    </div>
-                    {connectedWallet && <div className="absolute -top-2 -right-2 w-6 h-6 bg-[#0ECB81] rounded-full border-4 border-[#1E2329] animate-pulse"></div>}
+                   <div className={`w-24 h-24 rounded-[2rem] bg-[#0B0E11] border-2 flex items-center justify-center transition-all duration-500 ${connectedWallet ? 'border-[#0ECB81] text-[#0ECB81] shadow-[0_0_40px_rgba(14,203,129,0.1)]' : 'border-[#2B3139] text-[#474D57]'}`}>
+                      <Wallet size={44} />
+                   </div>
+                   {connectedWallet && <div className="absolute -top-2 -right-2 w-6 h-6 bg-[#0ECB81] rounded-full border-4 border-[#1E2329] animate-pulse"></div>}
                  </div>
 
                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter mb-4">
-                    {connectedWallet ? 'Session Active' : 'Bridge Required'}
+                   {connectedWallet ? 'Session Active' : 'Bridge Required'}
                  </h3>
                  <p className="text-xs text-[#848E9C] font-medium leading-relaxed max-w-xs mb-10">
-                    {connectedWallet 
-                      ? 'Your Solana wallet has been successfully verified by TradeHub protocol on-chain.' 
-                      : 'Connect Phantom Wallet to validate your trading performance on the blockchain.'}
+                   {connectedWallet 
+                     ? 'Your Solana wallet has been successfully verified by TradeHub protocol on-chain.' 
+                     : 'Connect Phantom Wallet to validate your trading performance on the blockchain.'}
                  </p>
 
                  {connectedWallet ? (
                    <div className="w-full space-y-6">
-                      <div className="bg-[#0B0E11] p-5 rounded-2xl border border-[#2B3139] flex items-center justify-between shadow-inner">
+                     <div className="bg-[#0B0E11] p-5 rounded-2xl border border-[#2B3139] flex items-center justify-between shadow-inner">
                          <span className="font-mono text-xs text-[#FCD535] font-black">{connectedWallet.substring(0, 10)}...{connectedWallet.substring(connectedWallet.length - 10)}</span>
                          <button onClick={() => { navigator.clipboard.writeText(connectedWallet!); setCopied(true); setTimeout(() => setCopied(false), 2000); }} className="p-2.5 bg-[#1E2329] hover:bg-[#2B3139] rounded-xl text-[#848E9C] hover:text-[#FCD535] transition-all">
-                            {copied ? <Check size={18} className="text-[#0ECB81]" /> : <Copy size={18} />}
+                           {copied ? <Check size={18} className="text-[#0ECB81]" /> : <Copy size={18} />}
                          </button>
-                      </div>
-                      <div className="flex gap-4">
-                        <button onClick={() => updateAllBalances()} disabled={isRefreshing} className="flex-1 py-4 bg-[#2B3139] text-[#EAECEF] rounded-2xl font-black text-[10px] uppercase tracking-widest border border-[#363c45] hover:text-[#FCD535] transition-all flex items-center justify-center gap-2">
-                           <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} /> REFRESH
-                        </button>
-                        <button onClick={() => handleDisconnect()} className="flex-1 py-4 bg-red-500/10 text-red-500 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-red-500/20 hover:bg-red-500 hover:text-white transition-all">
-                           DISCONNECT
-                        </button>
-                      </div>
+                     </div>
+                     <div className="flex gap-4">
+                       <button onClick={() => updateAllBalances()} disabled={isRefreshing} className="flex-1 py-4 bg-[#2B3139] text-[#EAECEF] rounded-2xl font-black text-[10px] uppercase tracking-widest border border-[#363c45] hover:text-[#FCD535] transition-all flex items-center justify-center gap-2">
+                          <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} /> REFRESH
+                       </button>
+                       <button onClick={() => handleDisconnect()} className="flex-1 py-4 bg-red-500/10 text-red-500 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-red-500/20 hover:bg-red-500 hover:text-white transition-all">
+                          DISCONNECT
+                       </button>
+                     </div>
                    </div>
                  ) : (
                    <button onClick={() => handleConnectWallet()} className="w-full py-5 bg-[#FCD535] text-black rounded-[1.5rem] font-black text-xs uppercase tracking-widest hover:bg-[#F0B90B] transition-all shadow-xl shadow-[#FCD535]/10 flex items-center justify-center gap-3 active:scale-95">

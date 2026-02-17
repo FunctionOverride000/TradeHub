@@ -534,7 +534,7 @@ export default function AuthPage() {
           )}
         </div>
         
-        <p className="text-center text-[10px] text-[#474D57] font-mono mt-8 uppercase tracking-widest">Secured by Supabase Auth</p>
+        <p className="text-center text-[10px] text-[#474D57] font-mono mt-8 uppercase tracking-widest">TradeHub - Proof Of Achievement</p>
       </div>
     </div>
   );
