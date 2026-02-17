@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
+import { AlertTriangle, RefreshCcw, Home, WifiOff } from 'lucide-react';
 
 export default function Error({
   error,
@@ -11,58 +12,79 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Log error ke layanan reporting (Sentry, dll) jika ada
+    // Log error to an error reporting service
     console.error(error);
   }, [error]);
 
   return (
-    <div className="flex h-screen w-full flex-col items-center justify-center bg-gray-50 px-4 text-center dark:bg-gray-900">
-      <div className="max-w-md space-y-6">
+    <div className="flex h-screen w-full flex-col items-center justify-center bg-[#0B0E11] px-4 text-center font-sans overflow-hidden relative">
+      
+      {/* Background Ambience */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[#FCD535] rounded-full blur-[200px] opacity-[0.03] animate-pulse"></div>
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:40px_40px] opacity-20"></div>
+      </div>
+
+      <div className="relative z-10 max-w-lg w-full space-y-8 animate-in fade-in zoom-in duration-700">
+        
+        {/* Animated Icon Container */}
         <div className="flex justify-center">
-          {/* Ikon Error Sederhana */}
-          <svg
-            className="h-24 w-24 text-red-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
+          <div className="relative">
+            <div className="absolute inset-0 bg-red-500/20 rounded-full blur-xl animate-pulse"></div>
+            <div className="relative w-32 h-32 bg-[#1E2329] border border-[#2B3139] rounded-[2rem] flex items-center justify-center shadow-2xl">
+                <AlertTriangle className="w-16 h-16 text-red-500 animate-bounce" />
+            </div>
+            {/* Decorative Glitch Elements */}
+            <div className="absolute -top-2 -right-2 w-4 h-4 bg-[#FCD535] rounded-full opacity-50 animate-ping"></div>
+            <div className="absolute -bottom-2 -left-2 w-3 h-3 bg-red-500 rounded-full opacity-50 animate-ping delay-300"></div>
+          </div>
         </div>
 
-        <h2 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
-          Ups! Terjadi Kesalahan
-        </h2>
-        
-        <p className="text-gray-500 dark:text-gray-400">
-          Maaf, kami mengalami masalah saat memproses permintaan Anda.
-          Ini mungkin masalah koneksi atau kesalahan server sementara.
-        </p>
+        {/* Text Content */}
+        <div className="space-y-4">
+          <h2 className="text-4xl lg:text-5xl font-black tracking-tighter text-white uppercase italic">
+            System <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-500">Malfunction</span>
+          </h2>
+          <div className="h-px w-24 bg-gradient-to-r from-transparent via-[#2B3139] to-transparent mx-auto"></div>
+          <p className="text-[#848E9C] text-sm lg:text-base leading-relaxed max-w-md mx-auto">
+            We encountered an unexpected anomaly while processing your request. This could be a temporary network glitch or a server-side interruption.
+          </p>
+          {error.digest && (
+             <p className="text-[10px] font-mono text-[#474D57] bg-[#1E2329]/50 py-1 px-3 rounded-full inline-block border border-[#2B3139]">
+                Error Code: {error.digest}
+             </p>
+          )}
+        </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+        {/* Action Buttons */}
+        <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
           <button
-            onClick={
-              // Attempt to recover by trying to re-render the segment
-              () => reset()
-            }
-            className="rounded-md bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            onClick={() => reset()}
+            className="group relative px-8 py-4 bg-[#FCD535] text-black font-black uppercase tracking-widest text-xs rounded-xl overflow-hidden hover:scale-105 transition-transform active:scale-95 shadow-xl shadow-[#FCD535]/10"
           >
-            Coba Lagi
+            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+            <span className="relative flex items-center justify-center gap-2">
+               <RefreshCcw size={16} className="group-hover:rotate-180 transition-transform duration-500" /> 
+               Try Again
+            </span>
           </button>
           
           <Link
             href="/"
-            className="rounded-md bg-white px-6 py-2.5 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-white dark:ring-gray-700 dark:hover:bg-gray-700"
+            className="group px-8 py-4 bg-[#1E2329] border border-[#2B3139] text-[#848E9C] font-black uppercase tracking-widest text-xs rounded-xl hover:text-white hover:border-[#FCD535]/30 hover:bg-[#232830] transition-all flex items-center justify-center gap-2"
           >
-            Kembali ke Beranda
+            <Home size={16} className="group-hover:-translate-y-0.5 transition-transform" />
+            Back Home
           </Link>
         </div>
+
       </div>
+      
+      {/* Footer Decoration */}
+      <div className="absolute bottom-10 text-[10px] font-black uppercase tracking-[0.3em] text-[#2B3139] animate-pulse">
+         Protocol Error Handler v1.0
+      </div>
+
     </div>
   );
 }

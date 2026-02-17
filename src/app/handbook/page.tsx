@@ -6,6 +6,7 @@ import {
   Zap, 
   BarChart3, 
   ArrowLeft,
+  ArrowRight,
   Coins,
   ShieldAlert,
   Globe,
@@ -21,20 +22,21 @@ import {
   Wallet,
   Activity,
   Ticket,
-  Send // Added Send icon import
+  Send,
+  Gavel,
+  Shield // Added Shield import
 } from 'lucide-react';
+import Link from 'next/link';
 
-import { useLanguage } from '../../lib/LanguageContext';
-import { LanguageSwitcher } from '../../lib/LanguageSwitcher';
+import { useLanguage } from '@/lib/LanguageContext';
+import { LanguageSwitcher } from '@/lib/LanguageSwitcher';
 
 // --- IMPORT COMPONENTS ---
-import NavCard from '../../components/handbook/NavCard';
-import ContentHeader from '../../components/handbook/ContentHeader';
-import GuideStep from '../../components/handbook/GuideStep';
-import FeeRow from '../../components/handbook/FeeRow';
-import TierRow from '../../components/handbook/TierRow';
-import ProjectCard from '../../components/handbook/ProjectCard';
-import SocialCard from '../../components/handbook/SocialCard';
+import NavCard from '@/components/handbook/NavCard';
+import ContentHeader from '@/components/handbook/ContentHeader';
+import GuideStep from '@/components/handbook/GuideStep';
+import ProjectCard from '@/components/handbook/ProjectCard';
+import SocialCard from '@/components/handbook/SocialCard';
 
 export default function HandbookPage() {
   const { t } = useLanguage();
@@ -174,6 +176,7 @@ export default function HandbookPage() {
                       <p className="text-sm text-[#848E9C] mb-6">
                          Winners are determined strictly by the final leaderboard standings at the end of the Arena duration. The Prize Pool consists of the Creator's initial deposit plus a share of accumulated Entry Fees.
                       </p>
+
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                          <div className="bg-[#1E2329] p-6 rounded-3xl border border-[#FCD535]/30 text-center relative overflow-hidden">
                             <div className="absolute top-0 left-0 w-full h-1 bg-[#FCD535]"></div>
@@ -206,6 +209,7 @@ export default function HandbookPage() {
                       <p className="text-sm text-[#848E9C] mb-6">
                          Creators act as the engines of the ecosystem. By hosting competitions, Creators can build reputation and monetize their community influence.
                       </p>
+
                       <ul className="space-y-4">
                          <li className="flex gap-4 p-4 bg-[#1E2329] rounded-2xl border border-[#2B3139]">
                             <div className="w-8 h-8 rounded-lg bg-[#3b82f6]/10 text-[#3b82f6] flex items-center justify-center font-bold shrink-0"><Ticket size={16}/></div>
@@ -297,6 +301,44 @@ export default function HandbookPage() {
                          </p>
                       </div>
                    </div>
+                </div>
+
+                {/* --- RULES & POLICIES (LINKED) --- */}
+                <div className="bg-gradient-to-r from-[#1E2329] to-[#15181D] p-8 rounded-3xl border border-[#FCD535]/20 relative overflow-hidden animate-in slide-in-from-bottom-8 fade-in duration-700 delay-300 hover:border-[#FCD535]/40 transition-all">
+                    <div className="flex items-center gap-4 mb-6">
+                        <div className="p-3 bg-[#FCD535]/10 rounded-xl text-[#FCD535]">
+                            <Gavel size={24} />
+                        </div>
+                        <h2 className="text-2xl font-bold text-white">Legal & Policies</h2>
+                    </div>
+                    
+                    <p className="text-[#848E9C] mb-8 leading-relaxed">
+                        To maintain a fair and secure ecosystem, all users must adhere to our rules and privacy policies. Violations may result in disqualification.
+                    </p>
+
+                    <div className="grid sm:grid-cols-2 gap-4">
+                        <Link href="/terms" className="group p-4 bg-[#0B0E11] rounded-2xl border border-[#2B3139] hover:border-[#FCD535]/50 transition-all flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <Scale size={20} className="text-[#848E9C] group-hover:text-[#FCD535]" />
+                                <div>
+                                    <span className="block text-white font-bold text-sm">Terms of Service</span>
+                                    <span className="text-[10px] text-[#848E9C]">Usage rules & disclaimer</span>
+                                </div>
+                            </div>
+                            <ArrowRight size={16} className="text-[#474D57] group-hover:text-[#FCD535] group-hover:translate-x-1 transition-all" />
+                        </Link>
+
+                        <Link href="/privacy" className="group p-4 bg-[#0B0E11] rounded-2xl border border-[#2B3139] hover:border-[#FCD535]/50 transition-all flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <Shield size={20} className="text-[#848E9C] group-hover:text-[#FCD535]" />
+                                <div>
+                                    <span className="block text-white font-bold text-sm">Privacy Policy</span>
+                                    <span className="text-[10px] text-[#848E9C]">Data & transparency</span>
+                                </div>
+                            </div>
+                            <ArrowRight size={16} className="text-[#474D57] group-hover:text-[#FCD535] group-hover:translate-x-1 transition-all" />
+                        </Link>
+                    </div>
                 </div>
              </div>
            )}
