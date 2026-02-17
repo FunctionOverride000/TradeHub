@@ -30,29 +30,22 @@ import {
   Ticket,
   ShieldCheck,
   RefreshCw,
-  Wrench, // Ikon untuk tombol Fix
-  AlertCircle // <-- DITAMBAHKAN DI SINI
+  Wrench, 
+  AlertCircle 
 } from 'lucide-react';
 
 // PERBAIKAN PENTING:
-// Kita import 'createClient' dari file helper kita sendiri di '@/lib/supabase'.
-// Helper ini dikonfigurasi menggunakan '@supabase/ssr' (createBrowserClient).
-// Ini memastikan sesi login disimpan di COOKIES, bukan localStorage.
-// Middleware di server hanya bisa membaca cookies. Jika pakai localStorage, server tidak tahu kita sudah login -> redirect ke login -> client tahu login -> redirect ke dashboard -> LOOPING.
+// Menggunakan helper client yang benar untuk menangani Cookies session
 import { createClient } from '@/lib/supabase';
 
 import * as web3 from '@solana/web3.js';
 import { useLanguage } from '@/lib/LanguageContext';
 import { LanguageSwitcher } from '@/lib/LanguageSwitcher'; 
 
-// --- IMPORT KOMPONEN YANG SUDAH DIPISAH ---
+// --- IMPORT KOMPONEN ---
 import AdminSidebar from '@/components/admin/AdminSidebar';
 import AdminStatCard from '@/components/admin/AdminStatCard';
-
-// --- KONFIGURASI SUPABASE ---
-// Tidak perlu konfigurasi URL/Key di sini lagi karena sudah di-handle oleh @/lib/supabase
-// const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-// const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+import AdminNotifications from '@/components/admin/AdminNotifications'; // <-- KOMPONEN NOTIFIKASI
 
 // Kita inisialisasi client menggunakan helper yang benar
 const supabase = createClient();
@@ -500,8 +493,6 @@ export default function CreatorDashboard() {
           edit_count: editCount + 1,
           
           distribution_status: statusToUpdate,
-          // FIX: Baris ini saya hapus karena properti 'description' sudah didefinisikan di atas (baris ~399)
-          // description: statusToUpdate === 'pending' ? null : editingRoom.description, 
           
           distribution_tx_hash: statusToUpdate === 'pending' ? null : editingRoom.distribution_tx_hash
         }).eq('id', editingRoom.id);
@@ -795,6 +786,8 @@ export default function CreatorDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+              {/* --- LOKASI NOTIFIKASI DI SINI --- */}
+              <AdminNotifications />
               <LanguageSwitcher />
               <div className={`flex items-center gap-3 px-4 py-2 rounded-xl border ${dbStatus === 'connected' ? 'bg-[#0ECB81]/10 border-[#0ECB81]/20 text-[#0ECB81]' : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500'}`}>
                 {dbStatus === 'connected' ? <Wifi size={14}/> : <Loader2 size={14} className="animate-spin"/>}
