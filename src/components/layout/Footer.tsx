@@ -58,7 +58,7 @@ export function Footer() {
            <NavLink icon={LayoutDashboard} label={t.nav.portfolio || "Dashboard"} onClick={() => safeNavigate('/dashboard')} />
            <NavLink icon={FileText} label="Terms" onClick={() => safeNavigate('/terms')} />
            <NavLink icon={Shield} label="Privacy" onClick={() => safeNavigate('/privacy')} />
-           <NavLink icon={Flag} label="Reports" onClick={() => safeNavigate('/reports')} />
+           <NavLink icon={Flag} label="Reports" onClick={() => safeNavigate('/report')} />
         </nav>
 
         {/* SOCIALS (RIGHT) */}
